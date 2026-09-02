@@ -7,66 +7,101 @@ import {
   Activity,
 } from "lucide-react";
 import { US_STATES } from "@/lib/utils";
+import { prisma } from "@/lib/prisma";
 
-const stats = [
-  {
-    label: "Total Businesses",
-    value: "—",
-    sub: "Connect DB to load",
-    icon: Building2,
-    color: "bg-blue-500",
-  },
-  {
-    label: "States Covered",
-    value: "0 / 51",
-    sub: "Including DC",
-    icon: MapPin,
-    color: "bg-emerald-500",
-  },
-  {
-    label: "Active Records",
-    value: "—",
-    sub: "Status = Active",
-    icon: Activity,
-    color: "bg-violet-500",
-  },
-  {
-    label: "Last Export",
-    value: "Never",
-    sub: "CSV / Sheets",
-    icon: FileSpreadsheet,
-    color: "bg-amber-500",
-  },
-];
+export const dynamic = "force-dynamic";
 
-const quickLinks = [
-  {
-    href: "/dashboard/search",
-    title: "Search Businesses",
-    desc: "Filter by state, entity type, status, city & more",
-    icon: Search,
-  },
-  {
-    href: "/dashboard/states",
-    title: "States Coverage",
-    desc: "See which states have data collectors ready",
-    icon: MapPin,
-  },
-  {
-    href: "/dashboard/sources",
-    title: "Data Sources",
-    desc: "Manage SOS collectors and update status",
-    icon: Database,
-  },
-  {
-    href: "/dashboard/export",
-    title: "Export / Sheets",
-    desc: "Download CSV or sync to Google Sheets",
-    icon: FileSpreadsheet,
-  },
-];
+async function getStats() {
+  try {
+    const [total, active, statesCovered] = await Promise.all([
+      prisma.business.count(),
+      prisma.business.count({
+        where: { status: { equals: "Active", mode: "insensitive" } },
+      }),
+      prisma.business.groupBy({
+        by: ["state"],
+        _count: true,
+      }),
+    ]);
 
-export default function DashboardOverviewPage() {
+    return {
+      total,
+      active,
+      statesCovered: statesCovered.length,
+      connected: true,
+    };
+  } catch (error) {
+    console.error("DB Error:", error);
+    return {
+      total: 0,
+      active: 0,
+      statesCovered: 0,
+      connected: false,
+    };
+  }
+}
+
+export default async function DashboardOverviewPage() {
+  const statsData = await getStats();
+
+  const stats = [
+    {
+      label: "Total Businesses",
+      value: statsData.connected ? statsData.total.toLocaleString() : "—",
+      sub: statsData.connected ? "In database" : "Connect DB to load",
+      icon: Building2,
+      color: "bg-blue-500",
+    },
+    {
+      label: "States Covered",
+      value: `${statsData.statesCovered} / 51`,
+      sub: "Including DC",
+      icon: MapPin,
+      color: "bg-emerald-500",
+    },
+    {
+      label: "Active Records",
+      value: statsData.connected ? statsData.active.toLocaleString() : "—",
+      sub: "Status = Active",
+      icon: Activity,
+      color: "bg-violet-500",
+    },
+    {
+      label: "Last Export",
+      value: "Never",
+      sub: "CSV / Sheets",
+      icon: FileSpreadsheet,
+      color: "bg-amber-500",
+    },
+  ];
+
+  const quickLinks = [
+    {
+      href: "/dashboard/search",
+      title: "Search Businesses",
+      desc: "Filter by state, entity type, status, city & more",
+      icon: Search,
+    },
+    {
+      href: "/dashboard/states",
+      title: "States Coverage",
+      desc: "See which states have data collectors ready",
+      icon: MapPin,
+    },
+    {
+      href: "/dashboard/sources",
+      title: "Data Sources",
+      desc: "Manage SOS collectors and update status",
+      icon: Database,
+    },
+    {
+      href: "/dashboard/export",
+      title: "Export / Sheets",
+      desc: "Download CSV or sync to Google Sheets",
+      icon: FileSpreadsheet,
+    },
+  ];
+
   return (
     <div className="space-y-8">
       <div>
@@ -159,12 +194,21 @@ export default function DashboardOverviewPage() {
         </div>
       </div>
 
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
-        <strong>Next step:</strong> Connect a real PostgreSQL database, run{" "}
-        <code className="bg-amber-100 px-1 rounded">npx prisma db push</code>{" "}
-        and <code className="bg-amber-100 px-1 rounded">npm run db:seed</code>,
-        then start building state collectors.
-      </div>
+      {!statsData.connected && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+          <strong>Next step:</strong> Connect a real PostgreSQL database, run{" "}
+          <code className="bg-amber-100 px-1 rounded">npx prisma db push</code>{" "}
+          and <code className="bg-amber-100 px-1 rounded">npm run db:seed</code>,
+          then start building state collectors.
+        </div>
+      )}
+
+      {statsData.connected && statsData.total === 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+          <strong>Database connected!</strong> Abhi koi business record nahi hai.
+          Data collectors bana ke records add karo.
+        </div>
+      )}
     </div>
   );
 }

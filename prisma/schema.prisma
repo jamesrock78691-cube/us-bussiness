@@ -1,0 +1,97 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  password      String?
+  image         String?
+  role          String    @default("user") // admin | user
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Business {
+  id                String    @id @default(cuid())
+  recordId          String?   @unique // external unique if available
+  companyName       String
+  state             String    // 2-letter code e.g. CA, TX
+  entityType        String?   // LLC, Corporation, etc.
+  entityNumber      String?
+  status            String?   // Active, Inactive, Dissolved, etc.
+  formationDate     DateTime?
+  principalAddress  String?
+  city              String?
+  zip               String?
+  registeredAgent   String?
+  website           String?
+  businessEmail     String?
+  businessPhone     String?
+  trademarkStatus   String?   // Matched, Not Found, Pending, etc.
+  trademarkMatch    String?   // details of match
+  source            String?   // e.g. "California SOS"
+  sourceUrl         String?
+  lastChecked       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // For duplicate detection / search optimization
+  @@index([state])
+  @@index([companyName])
+  @@index([status])
+  @@index([entityType])
+  @@index([city])
+  @@index([zip])
+  @@index([formationDate])
+  @@index([state, status])
+  @@index([state, entityType])
+  // Full-text search can be added later with pg_trgm
+}

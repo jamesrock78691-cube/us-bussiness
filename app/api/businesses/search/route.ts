@@ -4,6 +4,7 @@ import { searchColorado } from "@/lib/sources/colorado";
 import { searchNewYork } from "@/lib/sources/newyork";
 import { searchConnecticut } from "@/lib/sources/connecticut";
 import { searchOregon } from "@/lib/sources/oregon";
+import { searchPennsylvania } from "@/lib/sources/pennsylvania";
 
 const SAMPLE_FALLBACK = [
   {
@@ -128,6 +129,26 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    if (state === "PA") {
+      const result = await searchPennsylvania({
+        q: q || undefined,
+        entityType: entityType || undefined,
+        city: city || undefined,
+        zip: zip || undefined,
+        limit,
+        offset,
+      });
+      return NextResponse.json({
+        source: "pennsylvania-open-data",
+        total: result.total,
+        page,
+        limit,
+        totalPages: Math.ceil(result.total / limit) || 1,
+        data: result.data,
+        message: "Live data from Pennsylvania DOS Open Data (~2–4M entity rows, public domain)",
+      });
+    }
+
     try {
       const where: any = {};
       if (q) where.companyName = { contains: q, mode: "insensitive" };
@@ -166,43 +187,13 @@ export async function GET(req: NextRequest) {
       // DB not ready
     }
 
-    // Multi-state free search when no state selected
     if (!state && (q || city || zip || entityType || status || hasEmail)) {
       const jobs = [
-        searchColorado({
-          q: q || undefined,
-          entityType: entityType || undefined,
-          status: status || undefined,
-          city: city || undefined,
-          zip: zip || undefined,
-          limit: 5,
-          offset: 0,
-        }),
-        searchNewYork({
-          q: q || undefined,
-          entityType: entityType || undefined,
-          city: city || undefined,
-          zip: zip || undefined,
-          limit: 5,
-          offset: 0,
-        }),
-        searchConnecticut({
-          q: q || undefined,
-          entityType: entityType || undefined,
-          status: status || undefined,
-          city: city || undefined,
-          zip: zip || undefined,
-          hasEmail: hasEmail || undefined,
-          limit: 5,
-          offset: 0,
-        }),
-        searchOregon({
-          q: q || undefined,
-          entityType: entityType || undefined,
-          city: city || undefined,
-          limit: 5,
-          offset: 0,
-        }),
+        searchColorado({ q: q || undefined, entityType: entityType || undefined, status: status || undefined, city: city || undefined, zip: zip || undefined, limit: 4, offset: 0 }),
+        searchNewYork({ q: q || undefined, entityType: entityType || undefined, city: city || undefined, zip: zip || undefined, limit: 4, offset: 0 }),
+        searchConnecticut({ q: q || undefined, entityType: entityType || undefined, status: status || undefined, city: city || undefined, zip: zip || undefined, hasEmail: hasEmail || undefined, limit: 4, offset: 0 }),
+        searchOregon({ q: q || undefined, entityType: entityType || undefined, city: city || undefined, limit: 4, offset: 0 }),
+        searchPennsylvania({ q: q || undefined, entityType: entityType || undefined, city: city || undefined, zip: zip || undefined, limit: 4, offset: 0 }),
       ];
 
       const settled = await Promise.allSettled(jobs);
@@ -224,7 +215,7 @@ export async function GET(req: NextRequest) {
           totalPages: 1,
           data: merged.slice(0, limit),
           message:
-            "Results from free open data (CO + NY + CT + OR). Select one state for full pagination & more results.",
+            "Results from free open data (CO + NY + CT + OR + PA). Select one state for full pagination.",
         });
       }
     }
@@ -237,7 +228,7 @@ export async function GET(req: NextRequest) {
       totalPages: 1,
       data: SAMPLE_FALLBACK,
       message:
-        "Select State = CO, NY, CT, or OR for live free open data. CT often includes business emails.",
+        "Select State = CO, NY, CT, OR, or PA for live free open data. CT often includes business emails.",
     });
   } catch (error: any) {
     console.error("Search API error:", error);

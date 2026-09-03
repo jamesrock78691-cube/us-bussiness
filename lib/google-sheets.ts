@@ -1,24 +1,15 @@
 /**
- * Append rows to the user's Google Sheet via service account.
- *
- * Setup:
- * 1. Google Cloud → create Service Account → JSON key
- * 2. Share the Sheet with service account email (Editor)
- * 3. Vercel env:
- *    GOOGLE_SHEET_ID=1D0pRC_NEuG9HJK8hVVxedlIUWNU3UjLhohahYS9akGM
- *    GOOGLE_SERVICE_ACCOUNT_EMAIL=xxx@xxx.iam.gserviceaccount.com
- *    GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+ * Append rows to Google Sheet via service account (Node runtime).
  */
-
+import { createSign } from "crypto";
 import { SHEET_HEADER_LABELS } from "./csv";
 import { buildMapsUrl } from "./maps";
 
 const DEFAULT_SHEET_ID = "1D0pRC_NEuG9HJK8hVVxedlIUWNU3UjLhohahYS9akGM";
 
 function getCredentials() {
-  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "";
   let key = process.env.GOOGLE_PRIVATE_KEY || "";
-  // Vercel often stores newlines escaped
   key = key.replace(/\\n/g, "\n");
   const sheetId = process.env.GOOGLE_SHEET_ID || DEFAULT_SHEET_ID;
   return { email, key, sheetId };
@@ -26,31 +17,35 @@ function getCredentials() {
 
 export function isSheetsConfigured() {
   const { email, key } = getCredentials();
-  return Boolean(email && key && key.includes("PRIVATE KEY"));
+  return Boolean(email && key.includes("PRIVATE KEY"));
+}
+
+export function getDefaultSheetId() {
+  return process.env.GOOGLE_SHEET_ID || DEFAULT_SHEET_ID;
+}
+
+function base64url(input: string | Buffer) {
+  return Buffer.from(input)
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
 }
 
 async function getAccessToken(email: string, privateKey: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  const header = { alg: "RS256", typ: "JWT" };
-  const claim = {
-    iss: email,
-    scope: "https://www.googleapis.com/auth/spreadsheets",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600,
-  };
-
-  const encode = (obj: object) =>
-    Buffer.from(JSON.stringify(obj))
-      .toString("base64")
-      .replace(/=/g, "")
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_");
-
-  const unsigned = `${encode(header)}.${encode(claim)}`;
-
-  const crypto = await import("crypto");
-  const sign = crypto.createSign("RSA-SHA256");
+  const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claim = base64url(
+    JSON.stringify({
+      iss: email,
+      scope: "https://www.googleapis.com/auth/spreadsheets",
+      aud: "https://oauth2.googleapis.com/token",
+      iat: now,
+      exp: now + 3600,
+    })
+  );
+  const unsigned = `${header}.${claim}`;
+  const sign = createSign("RSA-SHA256");
   sign.update(unsigned);
   sign.end();
   const signature = sign
@@ -59,7 +54,6 @@ async function getAccessToken(email: string, privateKey: string): Promise<string
     .replace(/=/g, "")
     .replace(/\+/g, "-")
     .replace(/\//g, "_");
-
   const jwt = `${unsigned}.${signature}`;
 
   const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -75,8 +69,8 @@ async function getAccessToken(email: string, privateKey: string): Promise<string
     const t = await res.text();
     throw new Error(`Google auth failed: ${res.status} ${t}`);
   }
-  const json = await res.json();
-  return json.access_token as string;
+  const json = (await res.json()) as { access_token: string };
+  return json.access_token;
 }
 
 function rowToSheetValues(b: Record<string, unknown>): string[] {
@@ -115,21 +109,17 @@ function rowToSheetValues(b: Record<string, unknown>): string[] {
 }
 
 export async function ensureHeaderRow(accessToken: string, sheetId: string) {
-  // Read first row
-  const getUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Sheet1!A1:T1`;
+  const getUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A1:T1`;
   const getRes = await fetch(getUrl, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!getRes.ok) {
-    // try default sheet name "Sheet1" — if fails, still try append
-    return;
+  if (getRes.ok) {
+    const data = (await getRes.json()) as { values?: string[][] };
+    if (data.values?.[0]?.length) return;
   }
-  const data = await getRes.json();
-  const first = data.values?.[0];
-  if (first && first.length > 0) return; // already has header
 
   await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Sheet1!A1:T1?valueInputOption=USER_ENTERED`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A1:T1?valueInputOption=USER_ENTERED`,
     {
       method: "PUT",
       headers: {
@@ -147,7 +137,7 @@ export async function appendBusinessesToSheet(
   const { email, key, sheetId } = getCredentials();
   if (!email || !key) {
     throw new Error(
-      "Google Sheets not configured. Set GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY on Vercel."
+      "Google Sheets not configured. Set GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY."
     );
   }
 
@@ -155,13 +145,12 @@ export async function appendBusinessesToSheet(
   await ensureHeaderRow(token, sheetId);
 
   const values = businesses.map(rowToSheetValues);
-
-  // Append in chunks of 500
   let appended = 0;
+
   for (let i = 0; i < values.length; i += 500) {
     const chunk = values.slice(i, i + 500);
     const res = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Sheet1!A:T:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A:T:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
       {
         method: "POST",
         headers: {
@@ -179,8 +168,4 @@ export async function appendBusinessesToSheet(
   }
 
   return { appended, sheetId };
-}
-
-export function getDefaultSheetId() {
-  return process.env.GOOGLE_SHEET_ID || DEFAULT_SHEET_ID;
 }

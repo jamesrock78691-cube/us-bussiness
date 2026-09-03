@@ -11,6 +11,8 @@ import { searchConnecticut } from "@/lib/sources/connecticut";
 import { searchOregon } from "@/lib/sources/oregon";
 import { searchPennsylvania } from "@/lib/sources/pennsylvania";
 
+export const runtime = "nodejs";
+
 export async function GET() {
   return NextResponse.json({
     configured: isSheetsConfigured(),
@@ -25,7 +27,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Google Sheets credentials missing. Add GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_PRIVATE_KEY on Vercel, and share the sheet with that email as Editor.",
+            "Google Sheets credentials missing. Add GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_PRIVATE_KEY on Vercel, share sheet with that email as Editor.",
           sheetId: getDefaultSheetId(),
           setup: true,
         },
@@ -34,7 +36,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const state = (body.state || "").toUpperCase();
+    const state = String(body.state || "").toUpperCase();
     const q = body.q || "";
     const entityType = body.entityType || "";
     const status = body.status || "";
@@ -43,49 +45,77 @@ export async function POST(req: NextRequest) {
     const hasEmail = Boolean(body.hasEmail);
     const dateFrom = body.dateFrom || "";
     const dateTo = body.dateTo || "";
-    let count = Math.min(5000, Math.max(1, parseInt(String(body.count || 100), 10)));
+    const count = Math.min(5000, Math.max(1, parseInt(String(body.count || 100), 10)));
 
-    if (!state || !["CO", "NY", "CT", "OR", "PA"].includes(state)) {
+    if (!["CO", "NY", "CT", "OR", "PA"].includes(state)) {
       return NextResponse.json(
-        { error: "Select one live state (CO, NY, CT, OR, PA) before syncing to Sheet." },
+        { error: "Select one live state (CO, NY, CT, OR, PA) before syncing." },
         { status: 400 }
       );
     }
 
     const pageSize = 100;
     const pages = Math.ceil(count / pageSize);
-    const all: any[] = [];
+    const all: Record<string, unknown>[] = [];
 
     for (let p = 0; p < pages; p++) {
       const offset = p * pageSize;
       const limit = Math.min(pageSize, count - all.length);
-      let result: { data: any[]; total: number };
-
-      const common = {
-        q: q || undefined,
-        entityType: entityType || undefined,
-        city: city || undefined,
-        zip: zip || undefined,
-        limit,
-        offset,
-        dateFrom: dateFrom || undefined,
-        dateTo: dateTo || undefined,
-      };
+      let result: { data: Record<string, unknown>[]; total: number };
 
       if (state === "CO") {
-        result = await searchColorado({ ...common, status: status || undefined });
+        result = await searchColorado({
+          q: q || undefined,
+          entityType: entityType || undefined,
+          status: status || undefined,
+          city: city || undefined,
+          zip: zip || undefined,
+          dateFrom: dateFrom || undefined,
+          dateTo: dateTo || undefined,
+          limit,
+          offset,
+        });
       } else if (state === "NY") {
-        result = await searchNewYork(common);
+        result = await searchNewYork({
+          q: q || undefined,
+          entityType: entityType || undefined,
+          city: city || undefined,
+          zip: zip || undefined,
+          dateFrom: dateFrom || undefined,
+          dateTo: dateTo || undefined,
+          limit,
+          offset,
+        });
       } else if (state === "CT") {
         result = await searchConnecticut({
-          ...common,
+          q: q || undefined,
+          entityType: entityType || undefined,
           status: status || undefined,
+          city: city || undefined,
+          zip: zip || undefined,
           hasEmail: hasEmail || undefined,
+          limit,
+          offset,
         });
       } else if (state === "OR") {
-        result = await searchOregon(common);
+        result = await searchOregon({
+          q: q || undefined,
+          entityType: entityType || undefined,
+          city: city || undefined,
+          limit,
+          offset,
+        });
       } else {
-        result = await searchPennsylvania(common);
+        result = await searchPennsylvania({
+          q: q || undefined,
+          entityType: entityType || undefined,
+          city: city || undefined,
+          zip: zip || undefined,
+          dateFrom: dateFrom || undefined,
+          dateTo: dateTo || undefined,
+          limit,
+          offset,
+        });
       }
 
       all.push(...result.data);
@@ -95,7 +125,13 @@ export async function POST(req: NextRequest) {
 
     const rows = all.slice(0, count).map((b) => ({
       ...b,
-      mapsUrl: buildMapsUrl(b),
+      mapsUrl: buildMapsUrl({
+        companyName: b.companyName as string,
+        principalAddress: b.principalAddress as string,
+        city: b.city as string,
+        state: b.state as string,
+        zip: b.zip as string,
+      }),
     }));
 
     const { appended, sheetId } = await appendBusinessesToSheet(rows);
@@ -107,11 +143,9 @@ export async function POST(req: NextRequest) {
       sheetUrl: `https://docs.google.com/spreadsheets/d/${sheetId}/edit`,
       message: `${appended} rows written to Google Sheet (with Google Maps links).`,
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Sync failed";
     console.error("Sheets sync error:", e);
-    return NextResponse.json(
-      { error: e?.message || "Sync failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

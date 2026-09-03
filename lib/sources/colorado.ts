@@ -39,7 +39,6 @@ export function mapColorado(row: ColoradoRaw) {
     .filter(Boolean)
     .join(", ");
 
-  // Normalize common Colorado entity types
   let entityType = row.entitytype || null;
   if (entityType) {
     const t = entityType.toUpperCase();
@@ -93,13 +92,12 @@ export async function searchColorado(params: {
   limit?: number;
   offset?: number;
 }) {
-  const limit = Math.min(params.limit || 20, 50);
+  const limit = Math.min(params.limit || 20, 100);
   const offset = params.offset || 0;
 
   const where: string[] = [];
 
   if (params.q) {
-    // Socrata text search — upper for case-insensitive
     const safe = params.q.replace(/'/g, "''");
     where.push(`upper(entityname) like upper('%${safe}%')`);
   }
@@ -129,7 +127,6 @@ export async function searchColorado(params: {
   qs.set("$order", "entityname");
   if (where.length) qs.set("$where", where.join(" AND "));
 
-  // Count query
   const countQs = new URLSearchParams();
   if (where.length) countQs.set("$where", where.join(" AND "));
   countQs.set("$select", "count(*) as total");
@@ -154,9 +151,7 @@ export async function searchColorado(params: {
   try {
     const countJson = await countRes.json();
     total = parseInt(countJson?.[0]?.total || String(rows.length), 10);
-  } catch {
-    // ignore count failure
-  }
+  } catch {}
 
   return {
     total,

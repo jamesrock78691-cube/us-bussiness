@@ -50,7 +50,7 @@ export function mapNewYork(row: NewYorkRaw) {
     state: "NY",
     entityType,
     entityNumber: row.dos_id || null,
-    status: "Active", // this dataset is active only
+    status: "Active",
     formationDate: row.initial_dos_filing_date
       ? row.initial_dos_filing_date.slice(0, 10)
       : null,
@@ -77,7 +77,7 @@ export async function searchNewYork(params: {
   limit?: number;
   offset?: number;
 }) {
-  const limit = Math.min(params.limit || 20, 50);
+  const limit = Math.min(params.limit || 20, 100);
   const offset = params.offset || 0;
 
   const where: string[] = [];
@@ -136,9 +136,7 @@ export async function searchNewYork(params: {
   try {
     const countJson = await countRes.json();
     total = parseInt(countJson?.[0]?.total || String(rows.length), 10);
-  } catch {
-    // ignore
-  }
+  } catch {}
 
   return {
     total,

@@ -40,6 +40,8 @@ export function mapConnecticut(row: ConnecticutRaw) {
     else if (s.includes("inactive") || s.includes("suspend")) status = "Inactive";
   }
 
+  const email = (row.business_email_address || "").trim() || null;
+
   return {
     id: `CT-${row.accountnumber || row.id}`,
     recordId: row.accountnumber || row.id || null,
@@ -54,7 +56,7 @@ export function mapConnecticut(row: ConnecticutRaw) {
     zip: row.billingpostalcode || null,
     registeredAgent: null as string | null,
     website: null as string | null,
-    businessEmail: row.business_email_address || null,
+    businessEmail: email,
     businessPhone: null as string | null,
     trademarkStatus: null as string | null,
     trademarkMatch: null as string | null,
@@ -71,6 +73,7 @@ export async function searchConnecticut(params: {
   city?: string;
   zip?: string;
   hasEmail?: boolean;
+  hasGmail?: boolean;
   limit?: number;
   offset?: number;
 }) {
@@ -104,9 +107,17 @@ export async function searchConnecticut(params: {
     else if (t === "CORPORATION")
       where.push(`(upper(business_type) like '%STOCK%' OR upper(business_type) like '%CORP%')`);
     else if (t === "NONPROFIT")
-      where.push(`(upper(business_type) like '%NONSTOCK%' OR upper(business_type) like '%NONPROFIT%')`);
+      where.push(
+        `(upper(business_type) like '%NONSTOCK%' OR upper(business_type) like '%NONPROFIT%')`
+      );
   }
-  if (params.hasEmail) {
+
+  // Fully functional email filters against official CT field
+  if (params.hasGmail) {
+    where.push(
+      `business_email_address is not null AND business_email_address != '' AND upper(business_email_address) like '%@GMAIL.COM%'`
+    );
+  } else if (params.hasEmail) {
     where.push(`business_email_address is not null AND business_email_address != ''`);
   }
 
@@ -121,8 +132,14 @@ export async function searchConnecticut(params: {
   countQs.set("$select", "count(*) as total");
 
   const [dataRes, countRes] = await Promise.all([
-    fetch(`${CT_ENDPOINT}?${qs}`, { next: { revalidate: 3600 }, headers: { Accept: "application/json" } }),
-    fetch(`${CT_ENDPOINT}?${countQs}`, { next: { revalidate: 3600 }, headers: { Accept: "application/json" } }),
+    fetch(`${CT_ENDPOINT}?${qs}`, {
+      next: { revalidate: 0 },
+      headers: { Accept: "application/json" },
+    }),
+    fetch(`${CT_ENDPOINT}?${countQs}`, {
+      next: { revalidate: 0 },
+      headers: { Accept: "application/json" },
+    }),
   ]);
 
   if (!dataRes.ok) throw new Error(`Connecticut API error: ${dataRes.status}`);
@@ -134,5 +151,18 @@ export async function searchConnecticut(params: {
     total = parseInt(c?.[0]?.total || String(rows.length), 10);
   } catch {}
 
-  return { total, data: rows.map(mapConnecticut), source: "connecticut-open-data" as const };
+  let data = rows.map(mapConnecticut);
+
+  // Safety post-filter so UI never shows empty emails when filter is on
+  if (params.hasGmail) {
+    data = data.filter(
+      (r) =>
+        r.businessEmail &&
+        r.businessEmail.toLowerCase().includes("@gmail.com")
+    );
+  } else if (params.hasEmail) {
+    data = data.filter((r) => Boolean(r.businessEmail));
+  }
+
+  return { total, data, source: "connecticut-open-data" as const };
 }

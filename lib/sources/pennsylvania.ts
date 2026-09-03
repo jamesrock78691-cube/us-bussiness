@@ -1,4 +1,4 @@
-/** Pennsylvania Registered Businesses — free open data (Public Domain) */
+/** Pennsylvania Registered Businesses — free open data */
 export const PA_ENDPOINT = "https://data.pa.gov/resource/xvd7-5r2c.json";
 
 export interface PennsylvaniaRaw {
@@ -16,6 +16,12 @@ export interface PennsylvaniaRaw {
   middle_name?: string;
   first_name?: string;
   county_name?: string;
+}
+
+function nextDay(ymd: string): string {
+  const d = new Date(ymd + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 export function mapPennsylvania(row: PennsylvaniaRaw) {
@@ -93,17 +99,18 @@ export async function searchPennsylvania(params: {
     else if (t === "LP")
       where.push(`upper(typeofbusinessregistration) like '%LIMITED PARTNERSHIP%'`);
   }
+
   if (params.dateFrom) {
     where.push(`creationdate >= '${params.dateFrom}'`);
   }
   if (params.dateTo) {
-    where.push(`creationdate <= '${params.dateTo}T23:59:59'`);
+    where.push(`creationdate < '${nextDay(params.dateTo)}'`);
   }
 
   const qs = new URLSearchParams();
   qs.set("$limit", String(limit * 3));
   qs.set("$offset", String(offset));
-  qs.set("$order", "business_name");
+  qs.set("$order", "creationdate DESC");
   if (where.length) qs.set("$where", where.join(" AND "));
 
   const countQs = new URLSearchParams();
@@ -112,11 +119,11 @@ export async function searchPennsylvania(params: {
 
   const [dataRes, countRes] = await Promise.all([
     fetch(`${PA_ENDPOINT}?${qs}`, {
-      next: { revalidate: 3600 },
+      next: { revalidate: 0 },
       headers: { Accept: "application/json" },
     }),
     fetch(`${PA_ENDPOINT}?${countQs}`, {
-      next: { revalidate: 3600 },
+      next: { revalidate: 0 },
       headers: { Accept: "application/json" },
     }),
   ]);
@@ -131,18 +138,25 @@ export async function searchPennsylvania(params: {
   } catch {}
 
   const seen = new Set<string>();
-  const deduped = rows
+  let data = rows
     .filter((r) => {
       const key = r.filing_number || r.business_name || Math.random().toString();
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     })
-    .slice(0, limit);
+    .map(mapPennsylvania);
 
-  return {
-    total,
-    data: deduped.map(mapPennsylvania),
-    source: "pennsylvania-open-data" as const,
-  };
+  if (params.dateFrom || params.dateTo) {
+    data = data.filter((r) => {
+      if (!r.formationDate) return false;
+      if (params.dateFrom && r.formationDate < params.dateFrom) return false;
+      if (params.dateTo && r.formationDate > params.dateTo) return false;
+      return true;
+    });
+  }
+
+  data = data.slice(0, limit);
+
+  return { total, data, source: "pennsylvania-open-data" as const };
 }

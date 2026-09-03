@@ -19,6 +19,12 @@ export interface NewYorkRaw {
   location_address1?: string;
 }
 
+function nextDay(ymd: string): string {
+  const d = new Date(ymd + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 export function mapNewYork(row: NewYorkRaw) {
   let entityType = row.entity_type || null;
   if (entityType) {
@@ -38,7 +44,6 @@ export function mapNewYork(row: NewYorkRaw) {
     row.location_address1 ||
     [row.dos_process_address_1].filter(Boolean).join(", ") ||
     null;
-
   const city = row.location_city || row.dos_process_city || null;
   const zip = row.location_zip || row.dos_process_zip || null;
 
@@ -57,11 +62,11 @@ export function mapNewYork(row: NewYorkRaw) {
     city,
     zip,
     registeredAgent: row.dos_process_name || null,
-    website: null,
-    businessEmail: null,
-    businessPhone: null,
-    trademarkStatus: null,
-    trademarkMatch: null,
+    website: null as string | null,
+    businessEmail: null as string | null,
+    businessPhone: null as string | null,
+    trademarkStatus: null as string | null,
+    trademarkMatch: null as string | null,
     source: "New York DOS (Open Data)",
     sourceUrl: `https://data.ny.gov/resource/n9v6-gdp6.json?dos_id=${row.dos_id}`,
     lastChecked: new Date().toISOString(),
@@ -109,17 +114,19 @@ export async function searchNewYork(params: {
         `(upper(entity_type) like '%NOT-FOR-PROFIT%' OR upper(entity_type) like '%NONPROFIT%')`
       );
   }
+
   if (params.dateFrom) {
     where.push(`initial_dos_filing_date >= '${params.dateFrom}'`);
   }
   if (params.dateTo) {
-    where.push(`initial_dos_filing_date <= '${params.dateTo}'`);
+    // inclusive end date
+    where.push(`initial_dos_filing_date < '${nextDay(params.dateTo)}'`);
   }
 
   const qs = new URLSearchParams();
   qs.set("$limit", String(limit));
   qs.set("$offset", String(offset));
-  qs.set("$order", "current_entity_name");
+  qs.set("$order", "initial_dos_filing_date DESC");
   if (where.length) qs.set("$where", where.join(" AND "));
 
   const countQs = new URLSearchParams();
@@ -127,12 +134,12 @@ export async function searchNewYork(params: {
   countQs.set("$select", "count(*) as total");
 
   const [dataRes, countRes] = await Promise.all([
-    fetch(`${NY_ENDPOINT}?${qs.toString()}`, {
-      next: { revalidate: 3600 },
+    fetch(`${NY_ENDPOINT}?${qs}`, {
+      next: { revalidate: 0 },
       headers: { Accept: "application/json" },
     }),
-    fetch(`${NY_ENDPOINT}?${countQs.toString()}`, {
-      next: { revalidate: 3600 },
+    fetch(`${NY_ENDPOINT}?${countQs}`, {
+      next: { revalidate: 0 },
       headers: { Accept: "application/json" },
     }),
   ]);
@@ -146,9 +153,15 @@ export async function searchNewYork(params: {
     total = parseInt(countJson?.[0]?.total || String(rows.length), 10);
   } catch {}
 
-  return {
-    total,
-    data: rows.map(mapNewYork),
-    source: "newyork-open-data" as const,
-  };
+  let data = rows.map(mapNewYork);
+  if (params.dateFrom || params.dateTo) {
+    data = data.filter((r) => {
+      if (!r.formationDate) return false;
+      if (params.dateFrom && r.formationDate < params.dateFrom) return false;
+      if (params.dateTo && r.formationDate > params.dateTo) return false;
+      return true;
+    });
+  }
+
+  return { total, data, source: "newyork-open-data" as const };
 }

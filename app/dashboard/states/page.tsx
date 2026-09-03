@@ -12,6 +12,7 @@ export default async function StatesPage() {
     NY: { records: open.newYork, label: "Open Data API" },
     CT: { records: open.connecticut, label: "Open Data + Emails" },
     OR: { records: open.oregon, label: "Open Data API" },
+    PA: { records: open.pennsylvania, label: "Open Data API" },
   };
 
   const liveCount = Object.keys(LIVE).length;

@@ -49,6 +49,8 @@ interface SearchResponse {
 }
 
 const LIVE_STATES = new Set(["CO", "NY", "CT", "OR", "PA"]);
+const EXPORT_PAGE_SIZE = 100;
+const EXPORT_MAX_ROWS = 1000;
 
 function cleanName(name: string) {
   return name
@@ -105,6 +107,7 @@ export default function SearchPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState("");
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [error, setError] = useState("");
   const [tmLocal, setTmLocal] = useState<Record<string, string>>({});
@@ -158,39 +161,57 @@ export default function SearchPage() {
   async function handleExportCSV() {
     if (!result || result.data.length === 0) return;
     setExporting(true);
+    setExportProgress("Fetching rows...");
     try {
-      const withTm = result.data.map((b) => ({
+      const all: Business[] = [];
+      const maxPages = Math.ceil(EXPORT_MAX_ROWS / EXPORT_PAGE_SIZE);
+      const totalPagesNeeded = Math.min(
+        Math.ceil(result.total / EXPORT_PAGE_SIZE) || 1,
+        maxPages
+      );
+
+      for (let p = 1; p <= totalPagesNeeded; p++) {
+        setExportProgress(`Fetching page ${p} of ${totalPagesNeeded}...");
+        const params = new URLSearchParams();
+        if (appliedFilters.q) params.set("q", appliedFilters.q);
+        if (appliedFilters.state) params.set("state", appliedFilters.state);
+        if (appliedFilters.entityType) params.set("entityType", appliedFilters.entityType);
+        if (appliedFilters.status) params.set("status", appliedFilters.status);
+        if (appliedFilters.city) params.set("city", appliedFilters.city);
+        if (appliedFilters.zip) params.set("zip", appliedFilters.zip);
+        if (appliedFilters.hasEmail) params.set("hasEmail", "1");
+        params.set("page", String(p));
+        params.set("limit", String(EXPORT_PAGE_SIZE));
+
+        const res = await fetch(`/api/businesses/search?${params}`);
+        if (!res.ok) break;
+        const data: SearchResponse = await res.json();
+        if (!data.data?.length) break;
+        all.push(...data.data);
+        if (all.length >= EXPORT_MAX_ROWS) break;
+        if (data.data.length < EXPORT_PAGE_SIZE) break;
+      }
+
+      const unique = Array.from(new Map(all.map((b) => [b.id, b])).values()).slice(
+        0,
+        EXPORT_MAX_ROWS
+      );
+      const withTm = unique.map((b) => ({
         ...b,
         trademarkStatus: tmLocal[b.id] || b.trademarkStatus,
       }));
-      downloadCSV(withTm, `us-businesses-${appliedFilters.state || "all"}-page${page}.csv`);
 
-      if (result.totalPages > 1 && result.total > 20) {
-        const maxPages = Math.min(result.totalPages, 5);
-        const all: Business[] = [...withTm];
-        for (let p = 1; p <= maxPages; p++) {
-          if (p === page) continue;
-          const params = new URLSearchParams();
-          if (appliedFilters.q) params.set("q", appliedFilters.q);
-          if (appliedFilters.state) params.set("state", appliedFilters.state);
-          if (appliedFilters.entityType) params.set("entityType", appliedFilters.entityType);
-          if (appliedFilters.status) params.set("status", appliedFilters.status);
-          if (appliedFilters.city) params.set("city", appliedFilters.city);
-          if (appliedFilters.zip) params.set("zip", appliedFilters.zip);
-          if (appliedFilters.hasEmail) params.set("hasEmail", "1");
-          params.set("page", String(p));
-          params.set("limit", "20");
-          const res = await fetch(`/api/businesses/search?${params}`);
-          if (res.ok) {
-            const data: SearchResponse = await res.json();
-            all.push(...data.data);
-          }
-        }
-        const unique = Array.from(new Map(all.map((b) => [b.id, b])).values());
-        downloadCSV(unique, `us-businesses-${appliedFilters.state || "all"}-${unique.length}-rows.csv`);
-      }
+      setExportProgress(`Downloading ${withTm.length} rows...`);
+      downloadCSV(
+        withTm,
+        `us-businesses-${appliedFilters.state || "all"}-${withTm.length}-rows.csv`
+      );
+      setExportProgress(`Exported ${withTm.length} of ${result.total.toLocaleString()} total`);
+    } catch {
+      setError("Export failed. Try again or narrow filters.");
     } finally {
       setExporting(false);
+      setTimeout(() => setExportProgress(""), 4000);
     }
   }
 
@@ -220,17 +241,22 @@ export default function SearchPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Search Businesses</h1>
           <p className="text-slate-500 mt-1">
-            Live: <strong>CO, NY, CT, OR, PA</strong> · ~12M+ free records
+            Live: <strong>CO, NY, CT, OR, PA</strong> · Export up to 1,000 filtered rows
           </p>
         </div>
-        <button
-          onClick={handleExportCSV}
-          disabled={!result || result.data.length === 0 || exporting}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-sm font-medium transition disabled:cursor-not-allowed"
-        >
-          {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-          Export CSV
-        </button>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={handleExportCSV}
+            disabled={!result || result.data.length === 0 || exporting}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-sm font-medium transition disabled:cursor-not-allowed"
+          >
+            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {exporting ? "Exporting..." : "Export CSV (up to 1000)"}
+          </button>
+          {exportProgress && (
+            <span className="text-xs text-slate-500">{exportProgress}</span>
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
@@ -242,23 +268,12 @@ export default function SearchPage() {
             <label className="block text-xs font-medium text-slate-500 mb-1">Company name</label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                value={filters.q}
-                onChange={(e) => setFilters({ ...filters, q: e.target.value })}
-                onKeyDown={handleKeyDown}
-                placeholder="Search by company name..."
-                className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-              />
+              <input type="text" value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} onKeyDown={handleKeyDown} placeholder="Search by company name..." className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
             </div>
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">State</label>
-            <select
-              value={filters.state}
-              onChange={(e) => setFilters({ ...filters, state: e.target.value })}
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
-            >
+            <select value={filters.state} onChange={(e) => setFilters({ ...filters, state: e.target.value })} className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white">
               <option value="">All states</option>
               {US_STATES.map((s) => (
                 <option key={s.code} value={s.code}>
@@ -269,11 +284,7 @@ export default function SearchPage() {
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">Entity Type</label>
-            <select
-              value={filters.entityType}
-              onChange={(e) => setFilters({ ...filters, entityType: e.target.value })}
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
-            >
+            <select value={filters.entityType} onChange={(e) => setFilters({ ...filters, entityType: e.target.value })} className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white">
               <option value="">All types</option>
               {ENTITY_TYPES.map((t) => (
                 <option key={t} value={t}>{t}</option>
@@ -282,11 +293,7 @@ export default function SearchPage() {
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">Status</label>
-            <select
-              value={filters.status}
-              onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
-            >
+            <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white">
               <option value="">All statuses</option>
               {BUSINESS_STATUSES.map((s) => (
                 <option key={s} value={s}>{s}</option>
@@ -323,7 +330,7 @@ export default function SearchPage() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
           <span className="text-sm font-medium text-slate-700">Results</span>
-          <span className="text-xs text-slate-400">{result ? `${result.total.toLocaleString()} records` : "—"}</span>
+          <span className="text-xs text-slate-400">{result ? `${result.total.toLocaleString()} records (export max 1,000)` : "—"}</span>
         </div>
 
         {loading && !result ? (
@@ -417,8 +424,8 @@ export default function SearchPage() {
       </div>
 
       <div className="text-xs text-slate-400 space-y-1">
-        <p><strong>Live free states:</strong> CO, NY, CT, OR, PA (~12M+ records). CT has emails.</p>
-        <p><strong>Phone / Trademark:</strong> Find phone → Google · Check USPTO → mark Has TM / No TM · Export CSV.</p>
+        <p><strong>Export:</strong> CSV ab tak <strong>1,000 rows</strong> tak nikalta hai (filters apply). 67 lakh full dump free live API se practical nahi — filters lagao (city / entity type / name) taake relevant batch mile.</p>
+        <p><strong>Live states:</strong> CO, NY, CT, OR, PA · CT has emails.</p>
       </div>
     </div>
   );

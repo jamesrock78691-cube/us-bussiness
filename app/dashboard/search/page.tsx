@@ -13,7 +13,7 @@ import {
   Mail,
   Phone,
   BadgeCheck,
-  Sheet,
+  FileSpreadsheet,
 } from "lucide-react";
 import { US_STATES, ENTITY_TYPES, BUSINESS_STATUSES } from "@/lib/utils";
 import { toCSV, EXPORT_COLUMNS } from "@/lib/csv";
@@ -345,7 +345,7 @@ export default function SearchPage() {
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-sm font-medium transition"
               title="Append filtered rows to your Google Sheet"
             >
-              {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sheet className="w-4 h-4" />}
+              {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
               Google Sheet
             </button>
             <a

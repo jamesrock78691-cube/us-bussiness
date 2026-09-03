@@ -100,6 +100,10 @@ function downloadCSV(rows: Business[], filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function cell(v: string | null | undefined) {
+  return v && String(v).trim() ? String(v) : "—";
+}
+
 export default function SearchPage() {
   const [filters, setFilters] = useState({
     q: "",
@@ -230,9 +234,9 @@ export default function SearchPage() {
         ...b,
         trademarkStatus: tmLocal[b.id] || b.trademarkStatus,
       }));
-      setExportProgress(`Downloading ${unique.length} rows...`);
+      setExportProgress(`Downloading ${unique.length} rows (all 19 fields + Maps)...`);
       downloadCSV(unique, `us-businesses-${appliedFilters.state || "all"}-${unique.length}-rows.csv`);
-      setExportProgress(`Done — ${unique.length} rows (CSV includes Google Maps column)`);
+      setExportProgress(`Done — ${unique.length} rows with full columns`);
     } catch {
       setError("Export failed.");
     } finally {
@@ -300,14 +304,6 @@ export default function SearchPage() {
     return "bg-amber-50 text-amber-700";
   };
 
-  const tmBadge = (s: string | null | undefined) => {
-    if (!s || s === "unchecked") return "bg-slate-100 text-slate-500";
-    if (s === "Matched" || s.toLowerCase().includes("live") || s.toLowerCase().includes("registered"))
-      return "bg-violet-100 text-violet-800";
-    if (s === "Not Found" || s.toLowerCase().includes("none")) return "bg-slate-100 text-slate-600";
-    return "bg-amber-50 text-amber-700";
-  };
-
   const quickCounts = [50, 100, 250, 500, 1000, 2000];
 
   return (
@@ -316,7 +312,7 @@ export default function SearchPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Search Businesses</h1>
           <p className="text-slate-500 mt-1">
-            Live: <strong>CO, NY, CT, OR, PA</strong> · Date filter · Maps · Google Sheet
+            All <strong>19 fields</strong> + Google Maps · Live: CO, NY, CT, OR, PA
           </p>
         </div>
 
@@ -337,23 +333,17 @@ export default function SearchPage() {
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-sm font-medium transition"
             >
               {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              CSV
+              CSV (19 cols)
             </button>
             <button
               onClick={handleSyncSheet}
               disabled={!result || result.data.length === 0 || exporting || syncing}
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-sm font-medium transition"
-              title="Append filtered rows to your Google Sheet"
             >
               {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
               Google Sheet
             </button>
-            <a
-              href={SHEET_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2 py-2 text-xs text-blue-600 hover:underline"
-            >
+            <a href={SHEET_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 px-2 py-2 text-xs text-blue-600 hover:underline">
               Open sheet <ExternalLink className="w-3 h-3" />
             </a>
           </div>
@@ -376,7 +366,7 @@ export default function SearchPage() {
           {exportProgress && <span className="text-xs text-slate-500 text-right">{exportProgress}</span>}
           {sheetsStatus && !sheetsStatus.configured && (
             <span className="text-[11px] text-amber-700 text-right max-w-sm">
-              Sheet push ke liye Vercel pe GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_PRIVATE_KEY lagao (neeche setup).
+              Sheet push: Vercel pe GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_PRIVATE_KEY set karo.
             </span>
           )}
         </div>
@@ -460,9 +450,9 @@ export default function SearchPage() {
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-          <span className="text-sm font-medium text-slate-700">Results</span>
+          <span className="text-sm font-medium text-slate-700">Results — all 19 columns</span>
           <span className="text-xs text-slate-400">
-            {result ? `${result.total.toLocaleString()} total` : "—"}
+            {result ? `${result.total.toLocaleString()} total · scroll → for all fields` : "—"}
           </span>
         </div>
 
@@ -479,17 +469,30 @@ export default function SearchPage() {
         ) : result ? (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm min-w-[1800px]">
                 <thead>
-                  <tr className="bg-slate-50 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                    <th className="px-4 py-3">Company</th>
-                    <th className="px-4 py-3">State</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Formed</th>
-                    <th className="px-4 py-3">City</th>
-                    <th className="px-4 py-3">Email</th>
-                    <th className="px-4 py-3">Phone / Maps</th>
-                    <th className="px-4 py-3">Trademark</th>
+                  <tr className="bg-slate-50 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                    <th className="px-3 py-2 whitespace-nowrap sticky left-0 bg-slate-50 z-10">Company Name</th>
+                    <th className="px-3 py-2 whitespace-nowrap">State</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Entity Type</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Entity Number</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Status</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Formation Date</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Principal Address</th>
+                    <th className="px-3 py-2 whitespace-nowrap">City</th>
+                    <th className="px-3 py-2 whitespace-nowrap">ZIP</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Registered Agent</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Website</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Business Email</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Business Phone</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Trademark Status</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Trademark Match</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Source</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Source URL</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Last Checked</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Record ID</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Google Maps</th>
+                    <th className="px-3 py-2 whitespace-nowrap">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -497,46 +500,62 @@ export default function SearchPage() {
                     const tm = tmLocal[b.id] || b.trademarkStatus;
                     return (
                       <tr key={b.id} className="hover:bg-slate-50/80 transition">
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-slate-900 max-w-[200px]">{b.companyName}</div>
-                          <div className="text-xs text-slate-400">{b.entityType || ""} {b.entityNumber || ""}</div>
+                        <td className="px-3 py-2 font-medium text-slate-900 max-w-[180px] sticky left-0 bg-white z-10">
+                          <div className="truncate" title={b.companyName}>{b.companyName}</div>
                         </td>
-                        <td className="px-4 py-3">
-                          <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">{b.state}</span>
+                        <td className="px-3 py-2">
+                          <span className="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">{b.state}</span>
                         </td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${statusColor(b.status)}`}>{b.status || "Unknown"}</span>
+                        <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{cell(b.entityType)}</td>
+                        <td className="px-3 py-2 text-slate-600 text-xs whitespace-nowrap">{cell(b.entityNumber)}</td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-medium ${statusColor(b.status)}`}>{cell(b.status)}</span>
                         </td>
-                        <td className="px-4 py-3 text-slate-600 text-xs">{b.formationDate || "—"}</td>
-                        <td className="px-4 py-3 text-slate-600">{b.city || "—"}{b.zip ? ` ${b.zip}` : ""}</td>
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-2 text-slate-600 text-xs whitespace-nowrap">{cell(b.formationDate)}</td>
+                        <td className="px-3 py-2 text-slate-600 max-w-[160px] truncate" title={b.principalAddress || ""}>{cell(b.principalAddress)}</td>
+                        <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{cell(b.city)}</td>
+                        <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{cell(b.zip)}</td>
+                        <td className="px-3 py-2 text-slate-600 max-w-[140px] truncate" title={b.registeredAgent || ""}>{cell(b.registeredAgent)}</td>
+                        <td className="px-3 py-2 text-xs">
+                          {b.website ? (
+                            <a href={b.website.startsWith("http") ? b.website : `https://${b.website}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline truncate block max-w-[120px]">{b.website}</a>
+                          ) : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-xs">
                           {b.businessEmail ? (
-                            <a href={`mailto:${b.businessEmail}`} className="text-xs text-emerald-700 hover:underline font-medium inline-flex items-center gap-1"><Mail className="w-3 h-3" /> {b.businessEmail}</a>
+                            <a href={`mailto:${b.businessEmail}`} className="text-emerald-700 hover:underline">{b.businessEmail}</a>
                           ) : (
-                            <a href={emailSearchUrl(b)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1"><Mail className="w-3 h-3" /> Find email</a>
+                            <a href={emailSearchUrl(b)} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Find</a>
                           )}
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-col gap-1">
-                            {b.businessPhone ? (
-                              <a href={`tel:${b.businessPhone}`} className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1"><Phone className="w-3 h-3" /> {b.businessPhone}</a>
-                            ) : (
-                              <a href={phoneSearchUrl(b)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1"><Phone className="w-3 h-3" /> Find phone</a>
-                            )}
-                            <a href={mapsUrl(b)} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-500 hover:underline inline-flex items-center gap-1"><ExternalLink className="w-3 h-3" /> Maps</a>
-                          </div>
+                        <td className="px-3 py-2 text-xs">
+                          {b.businessPhone ? (
+                            <a href={`tel:${b.businessPhone}`} className="text-blue-600 hover:underline">{b.businessPhone}</a>
+                          ) : (
+                            <a href={phoneSearchUrl(b)} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Find</a>
+                          )}
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-col gap-1.5">
-                            <span className={`inline-flex w-fit items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium ${tmBadge(tm)}`}>
-                              <BadgeCheck className="w-3 h-3" />{tm || "Not checked"}
-                            </span>
-                            <a href={usptoUrl(b.companyName)} target="_blank" rel="noopener noreferrer" onClick={() => markTrademark(b.id, "Checked — see USPTO")} className="text-xs text-violet-700 hover:underline">Check USPTO ↗</a>
-                            <div className="flex gap-2 text-[10px]">
-                              <button type="button" onClick={() => markTrademark(b.id, "Matched")} className="text-violet-600 hover:underline">Mark: Has TM</button>
-                              <button type="button" onClick={() => markTrademark(b.id, "Not Found")} className="text-slate-500 hover:underline">No TM</button>
-                            </div>
-                          </div>
+                        <td className="px-3 py-2 text-xs text-slate-600">{cell(tm)}</td>
+                        <td className="px-3 py-2 text-xs text-slate-600">{cell(b.trademarkMatch)}</td>
+                        <td className="px-3 py-2 text-xs text-slate-500 max-w-[120px] truncate" title={b.source || ""}>{cell(b.source)}</td>
+                        <td className="px-3 py-2 text-xs">
+                          {b.sourceUrl ? (
+                            <a href={b.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Link</a>
+                          ) : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-slate-500 whitespace-nowrap">
+                          {b.lastChecked ? b.lastChecked.slice(0, 10) : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">{cell(b.recordId)}</td>
+                        <td className="px-3 py-2 text-xs">
+                          <a href={mapsUrl(b)} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-0.5">
+                            Maps <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </td>
+                        <td className="px-3 py-2 text-[10px] whitespace-nowrap">
+                          <a href={usptoUrl(b.companyName)} target="_blank" rel="noopener noreferrer" onClick={() => markTrademark(b.id, "Checked — see USPTO")} className="text-violet-700 hover:underline mr-2">USPTO</a>
+                          <button type="button" onClick={() => markTrademark(b.id, "Matched")} className="text-violet-600 hover:underline mr-1">Has TM</button>
+                          <button type="button" onClick={() => markTrademark(b.id, "Not Found")} className="text-slate-500 hover:underline">No TM</button>
                         </td>
                       </tr>
                     );
@@ -558,17 +577,9 @@ export default function SearchPage() {
         ) : null}
       </div>
 
-      <div className="text-xs text-slate-500 space-y-2 bg-slate-50 border border-slate-200 rounded-lg p-4">
-        <p><strong>Google Sheet:</strong>{' '}
-          <a className="text-blue-600 hover:underline" href={SHEET_URL} target="_blank" rel="noopener noreferrer">Open your sheet</a>
-          {' '}· CSV + Sheet dono mein <strong>Google Maps</strong> column aata hai.
-        </p>
-        <p><strong>Date filter:</strong> Formation date from / to — CO, NY, PA pe best kaam karta hai.</p>
-        <p><strong>Lacs / crores:</strong> Google Sheet ~10 lakh cells practical limit. Pure 67 lakh rows ek sheet mein nahi aate. Filters + Rows number se batch push karo (max 5,000 per click).</p>
-        <p><strong>Sheet auto-push setup (ek baar):</strong> Google Cloud → Service Account → JSON key → sheet ko us email se <em>Editor</em> share karo → Vercel env:
-          <code className="block mt-1 text-[10px] bg-white border rounded p-2 overflow-x-auto">GOOGLE_SHEET_ID=1D0pRC_NEuG9HJK8hVVxedlIUWNU3UjLhohahYS9akGM{"\n"}GOOGLE_SERVICE_ACCOUNT_EMAIL=...@....iam.gserviceaccount.com{"\n"}GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"</code>
-        </p>
-        <p>Credentials ke bina bhi CSV export mein Maps link already included hai — CSV Google Sheet mein Import kar sakte ho.</p>
+      <div className="text-xs text-slate-500 space-y-1 bg-slate-50 border border-slate-200 rounded-lg p-4">
+        <p><strong>Columns (19 + Maps):</strong> Company Name · State · Entity Type · Entity Number · Status · Formation Date · Principal Address · City · ZIP · Registered Agent · Website · Business Email · Business Phone · Trademark Status · Trademark Match · Source · Source URL · Last Checked · Record ID · Google Maps</p>
+        <p>CSV export aur Google Sheet sync bhi inhi headers ke sath jaate hain. Table pe right-scroll karo saari fields dekhne ke liye.</p>
       </div>
     </div>
   );

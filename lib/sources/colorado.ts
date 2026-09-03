@@ -1,7 +1,6 @@
 /**
  * Colorado Business Entities — free open data (Public Domain)
  * Source: https://data.colorado.gov/resource/4ykn-tg5h.json
- * ~3.1M records
  */
 
 export const COLORADO_ENDPOINT =
@@ -65,9 +64,7 @@ export function mapColorado(row: ColoradoRaw) {
     entityType,
     entityNumber: row.entityid || null,
     status,
-    formationDate: row.entityformdate
-      ? row.entityformdate.slice(0, 10)
-      : null,
+    formationDate: row.entityformdate ? row.entityformdate.slice(0, 10) : null,
     principalAddress: address || null,
     city: row.principalcity || null,
     zip: row.principalzipcode || null,
@@ -89,12 +86,13 @@ export async function searchColorado(params: {
   status?: string;
   city?: string;
   zip?: string;
+  dateFrom?: string;
+  dateTo?: string;
   limit?: number;
   offset?: number;
 }) {
   const limit = Math.min(params.limit || 20, 100);
   const offset = params.offset || 0;
-
   const where: string[] = [];
 
   if (params.q) {
@@ -111,14 +109,31 @@ export async function searchColorado(params: {
   if (params.status) {
     const s = params.status.toLowerCase();
     if (s === "active") where.push(`upper(entitystatus) like '%GOOD STANDING%'`);
-    else if (s === "inactive") where.push(`(upper(entitystatus) like '%DELINQUENT%' OR upper(entitystatus) like '%SUSPENDED%')`);
-    else if (s === "dissolved") where.push(`(upper(entitystatus) like '%DISSOLVED%' OR upper(entitystatus) like '%WITHDRAWN%')`);
+    else if (s === "inactive")
+      where.push(
+        `(upper(entitystatus) like '%DELINQUENT%' OR upper(entitystatus) like '%SUSPENDED%')`
+      );
+    else if (s === "dissolved")
+      where.push(
+        `(upper(entitystatus) like '%DISSOLVED%' OR upper(entitystatus) like '%WITHDRAWN%')`
+      );
   }
   if (params.entityType) {
     const t = params.entityType.toUpperCase();
-    if (t === "LLC") where.push(`(entitytype = 'DLLC' OR entitytype = 'FLLC' OR upper(entitytype) like '%LLC%')`);
-    else if (t === "CORPORATION") where.push(`(entitytype = 'DPC' OR entitytype = 'FPC' OR upper(entitytype) like '%CORP%')`);
-    else if (t === "LP") where.push(`(entitytype = 'DLP' OR entitytype = 'FLP' OR upper(entitytype) like '%LIMITED PARTNERSHIP%')`);
+    if (t === "LLC")
+      where.push(`(entitytype = 'DLLC' OR entitytype = 'FLLC' OR upper(entitytype) like '%LLC%')`);
+    else if (t === "CORPORATION")
+      where.push(`(entitytype = 'DPC' OR entitytype = 'FPC' OR upper(entitytype) like '%CORP%')`);
+    else if (t === "LP")
+      where.push(
+        `(entitytype = 'DLP' OR entitytype = 'FLP' OR upper(entitytype) like '%LIMITED PARTNERSHIP%')`
+      );
+  }
+  if (params.dateFrom) {
+    where.push(`entityformdate >= '${params.dateFrom}'`);
+  }
+  if (params.dateTo) {
+    where.push(`entityformdate <= '${params.dateTo}T23:59:59'`);
   }
 
   const qs = new URLSearchParams();
@@ -142,9 +157,7 @@ export async function searchColorado(params: {
     }),
   ]);
 
-  if (!dataRes.ok) {
-    throw new Error(`Colorado API error: ${dataRes.status}`);
-  }
+  if (!dataRes.ok) throw new Error(`Colorado API error: ${dataRes.status}`);
 
   const rows: ColoradoRaw[] = await dataRes.json();
   let total = rows.length;

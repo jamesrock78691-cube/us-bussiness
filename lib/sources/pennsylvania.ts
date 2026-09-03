@@ -1,8 +1,4 @@
-/** Pennsylvania Registered Businesses — free open data (Public Domain)
- * https://data.pa.gov/resource/xvd7-5r2c.json
- * Officer-level rows; we dedupe by filing_number
- */
-
+/** Pennsylvania Registered Businesses — free open data (Public Domain) */
 export const PA_ENDPOINT = "https://data.pa.gov/resource/xvd7-5r2c.json";
 
 export interface PennsylvaniaRaw {
@@ -67,10 +63,12 @@ export async function searchPennsylvania(params: {
   entityType?: string;
   city?: string;
   zip?: string;
+  dateFrom?: string;
+  dateTo?: string;
   limit?: number;
   offset?: number;
 }) {
-  const limit = Math.min(params.limit || 20, 50);
+  const limit = Math.min(params.limit || 20, 100);
   const offset = params.offset || 0;
   const where: string[] = [];
 
@@ -88,13 +86,22 @@ export async function searchPennsylvania(params: {
   if (params.entityType) {
     const t = params.entityType.toUpperCase();
     if (t === "LLC") where.push(`upper(typeofbusinessregistration) like '%LIMITED LIABILITY%'`);
-    else if (t === "CORPORATION") where.push(`upper(typeofbusinessregistration) like '%CORPORATION%'`);
-    else if (t === "NONPROFIT") where.push(`upper(typeofbusinessregistration) like '%NONPROFIT%'`);
-    else if (t === "LP") where.push(`upper(typeofbusinessregistration) like '%LIMITED PARTNERSHIP%'`);
+    else if (t === "CORPORATION")
+      where.push(`upper(typeofbusinessregistration) like '%CORPORATION%'`);
+    else if (t === "NONPROFIT")
+      where.push(`upper(typeofbusinessregistration) like '%NONPROFIT%'`);
+    else if (t === "LP")
+      where.push(`upper(typeofbusinessregistration) like '%LIMITED PARTNERSHIP%'`);
+  }
+  if (params.dateFrom) {
+    where.push(`creationdate >= '${params.dateFrom}'`);
+  }
+  if (params.dateTo) {
+    where.push(`creationdate <= '${params.dateTo}T23:59:59'`);
   }
 
   const qs = new URLSearchParams();
-  qs.set("$limit", String(limit * 3)); // over-fetch then dedupe officers
+  qs.set("$limit", String(limit * 3));
   qs.set("$offset", String(offset));
   qs.set("$order", "business_name");
   if (where.length) qs.set("$where", where.join(" AND "));
@@ -104,8 +111,14 @@ export async function searchPennsylvania(params: {
   countQs.set("$select", "count(*) as total");
 
   const [dataRes, countRes] = await Promise.all([
-    fetch(`${PA_ENDPOINT}?${qs}`, { next: { revalidate: 3600 }, headers: { Accept: "application/json" } }),
-    fetch(`${PA_ENDPOINT}?${countQs}`, { next: { revalidate: 3600 }, headers: { Accept: "application/json" } }),
+    fetch(`${PA_ENDPOINT}?${qs}`, {
+      next: { revalidate: 3600 },
+      headers: { Accept: "application/json" },
+    }),
+    fetch(`${PA_ENDPOINT}?${countQs}`, {
+      next: { revalidate: 3600 },
+      headers: { Accept: "application/json" },
+    }),
   ]);
 
   if (!dataRes.ok) throw new Error(`Pennsylvania API error: ${dataRes.status}`);
@@ -118,12 +131,14 @@ export async function searchPennsylvania(params: {
   } catch {}
 
   const seen = new Set<string>();
-  const deduped = rows.filter((r) => {
-    const key = r.filing_number || r.business_name || Math.random().toString();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  }).slice(0, limit);
+  const deduped = rows
+    .filter((r) => {
+      const key = r.filing_number || r.business_name || Math.random().toString();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, limit);
 
   return {
     total,

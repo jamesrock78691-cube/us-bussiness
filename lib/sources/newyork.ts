@@ -1,9 +1,4 @@
-/**
- * New York Active Corporations — free open data
- * Source: https://data.ny.gov/resource/n9v6-gdp6.json
- * ~4.2M active entities
- */
-
+/** New York Active Corporations — free open data */
 export const NY_ENDPOINT = "https://data.ny.gov/resource/n9v6-gdp6.json";
 
 export interface NewYorkRaw {
@@ -29,10 +24,14 @@ export function mapNewYork(row: NewYorkRaw) {
   if (entityType) {
     const t = entityType.toUpperCase();
     if (t.includes("LIMITED LIABILITY") || t.includes("LLC")) entityType = "LLC";
-    else if (t.includes("BUSINESS CORPORATION") || t.includes("CORPORATION")) entityType = "Corporation";
-    else if (t.includes("LIMITED PARTNERSHIP") && !t.includes("LIABILITY")) entityType = "LP";
-    else if (t.includes("LIMITED LIABILITY PARTNERSHIP") || t.includes("LLP")) entityType = "LLP";
-    else if (t.includes("NOT-FOR-PROFIT") || t.includes("NONPROFIT")) entityType = "Nonprofit";
+    else if (t.includes("BUSINESS CORPORATION") || t.includes("CORPORATION"))
+      entityType = "Corporation";
+    else if (t.includes("LIMITED PARTNERSHIP") && !t.includes("LIABILITY"))
+      entityType = "LP";
+    else if (t.includes("LIMITED LIABILITY PARTNERSHIP") || t.includes("LLP"))
+      entityType = "LLP";
+    else if (t.includes("NOT-FOR-PROFIT") || t.includes("NONPROFIT"))
+      entityType = "Nonprofit";
   }
 
   const address =
@@ -74,12 +73,13 @@ export async function searchNewYork(params: {
   entityType?: string;
   city?: string;
   zip?: string;
+  dateFrom?: string;
+  dateTo?: string;
   limit?: number;
   offset?: number;
 }) {
   const limit = Math.min(params.limit || 20, 100);
   const offset = params.offset || 0;
-
   const where: string[] = [];
 
   if (params.q) {
@@ -94,16 +94,26 @@ export async function searchNewYork(params: {
   }
   if (params.zip) {
     const safe = params.zip.replace(/'/g, "''");
-    where.push(
-      `(location_zip like '${safe}%' OR dos_process_zip like '${safe}%')`
-    );
+    where.push(`(location_zip like '${safe}%' OR dos_process_zip like '${safe}%')`);
   }
   if (params.entityType) {
     const t = params.entityType.toUpperCase();
     if (t === "LLC") where.push(`upper(entity_type) like '%LIMITED LIABILITY%'`);
     else if (t === "CORPORATION") where.push(`upper(entity_type) like '%CORPORATION%'`);
-    else if (t === "LP") where.push(`upper(entity_type) like '%LIMITED PARTNERSHIP%' AND upper(entity_type) not like '%LIABILITY%'`);
-    else if (t === "NONPROFIT") where.push(`(upper(entity_type) like '%NOT-FOR-PROFIT%' OR upper(entity_type) like '%NONPROFIT%')`);
+    else if (t === "LP")
+      where.push(
+        `upper(entity_type) like '%LIMITED PARTNERSHIP%' AND upper(entity_type) not like '%LIABILITY%'`
+      );
+    else if (t === "NONPROFIT")
+      where.push(
+        `(upper(entity_type) like '%NOT-FOR-PROFIT%' OR upper(entity_type) like '%NONPROFIT%')`
+      );
+  }
+  if (params.dateFrom) {
+    where.push(`initial_dos_filing_date >= '${params.dateFrom}'`);
+  }
+  if (params.dateTo) {
+    where.push(`initial_dos_filing_date <= '${params.dateTo}'`);
   }
 
   const qs = new URLSearchParams();
@@ -127,9 +137,7 @@ export async function searchNewYork(params: {
     }),
   ]);
 
-  if (!dataRes.ok) {
-    throw new Error(`New York API error: ${dataRes.status}`);
-  }
+  if (!dataRes.ok) throw new Error(`New York API error: ${dataRes.status}`);
 
   const rows: NewYorkRaw[] = await dataRes.json();
   let total = rows.length;

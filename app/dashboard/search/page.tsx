@@ -48,7 +48,7 @@ interface SearchResponse {
   message?: string;
 }
 
-const LIVE_STATES = new Set(["CO", "NY", "CT", "OR"]);
+const LIVE_STATES = new Set(["CO", "NY", "CT", "OR", "PA"]);
 
 function cleanName(name: string) {
   return name
@@ -107,7 +107,6 @@ export default function SearchPage() {
   const [exporting, setExporting] = useState(false);
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [error, setError] = useState("");
-  // Local trademark marks set by user after checking USPTO
   const [tmLocal, setTmLocal] = useState<Record<string, string>>({});
 
   const doSearch = useCallback(async (f: typeof filters, p: number) => {
@@ -221,7 +220,7 @@ export default function SearchPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Search Businesses</h1>
           <p className="text-slate-500 mt-1">
-            Live: <strong>CO, NY, CT, OR</strong> · Phone + Trademark tools on each row
+            Live: <strong>CO, NY, CT, OR, PA</strong> · ~12M+ free records
           </p>
         </div>
         <button
@@ -296,58 +295,30 @@ export default function SearchPage() {
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">City</label>
-            <input
-              type="text"
-              value={filters.city}
-              onChange={(e) => setFilters({ ...filters, city: e.target.value })}
-              onKeyDown={handleKeyDown}
-              placeholder="City"
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            />
+            <input type="text" value={filters.city} onChange={(e) => setFilters({ ...filters, city: e.target.value })} onKeyDown={handleKeyDown} placeholder="City" className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">ZIP</label>
-            <input
-              type="text"
-              value={filters.zip}
-              onChange={(e) => setFilters({ ...filters, zip: e.target.value })}
-              onKeyDown={handleKeyDown}
-              placeholder="ZIP code"
-              className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            />
+            <input type="text" value={filters.zip} onChange={(e) => setFilters({ ...filters, zip: e.target.value })} onKeyDown={handleKeyDown} placeholder="ZIP code" className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
           </div>
         </div>
 
         <label className="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={filters.hasEmail}
-            onChange={(e) => setFilters({ ...filters, hasEmail: e.target.checked })}
-            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-          />
+          <input type="checkbox" checked={filters.hasEmail} onChange={(e) => setFilters({ ...filters, hasEmail: e.target.checked })} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
           Only with business email (best on <strong>CT</strong>)
         </label>
 
         <div className="flex gap-2 pt-1">
-          <button
-            type="button"
-            onClick={handleSearch}
-            disabled={loading}
-            className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-medium transition"
-          >
+          <button type="button" onClick={handleSearch} disabled={loading} className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-medium transition">
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
             Search
           </button>
-          <button type="button" onClick={handleClear} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium">
-            Clear
-          </button>
+          <button type="button" onClick={handleClear} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium">Clear</button>
         </div>
       </div>
 
       {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">{error}</div>}
-      {result?.message && (
-        <div className="bg-blue-50 border border-blue-200 text-blue-800 text-sm px-4 py-3 rounded-lg">{result.message}</div>
-      )}
+      {result?.message && <div className="bg-blue-50 border border-blue-200 text-blue-800 text-sm px-4 py-3 rounded-lg">{result.message}</div>}
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
@@ -393,60 +364,35 @@ export default function SearchPage() {
                           <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">{b.state}</span>
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${statusColor(b.status)}`}>
-                            {b.status || "Unknown"}
-                          </span>
+                          <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${statusColor(b.status)}`}>{b.status || "Unknown"}</span>
                         </td>
                         <td className="px-4 py-3 text-slate-600">{b.city || "—"}{b.zip ? ` ${b.zip}` : ""}</td>
                         <td className="px-4 py-3">
                           {b.businessEmail ? (
-                            <a href={`mailto:${b.businessEmail}`} className="text-xs text-emerald-700 hover:underline font-medium inline-flex items-center gap-1">
-                              <Mail className="w-3 h-3" /> {b.businessEmail}
-                            </a>
+                            <a href={`mailto:${b.businessEmail}`} className="text-xs text-emerald-700 hover:underline font-medium inline-flex items-center gap-1"><Mail className="w-3 h-3" /> {b.businessEmail}</a>
                           ) : (
-                            <a href={emailSearchUrl(b)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1">
-                              <Mail className="w-3 h-3" /> Find email
-                            </a>
+                            <a href={emailSearchUrl(b)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1"><Mail className="w-3 h-3" /> Find email</a>
                           )}
                         </td>
                         <td className="px-4 py-3">
                           {b.businessPhone ? (
-                            <a href={`tel:${b.businessPhone}`} className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1">
-                              <Phone className="w-3 h-3" /> {b.businessPhone}
-                            </a>
+                            <a href={`tel:${b.businessPhone}`} className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1"><Phone className="w-3 h-3" /> {b.businessPhone}</a>
                           ) : (
                             <div className="flex flex-col gap-1">
-                              <a href={phoneSearchUrl(b)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1">
-                                <Phone className="w-3 h-3" /> Find phone
-                              </a>
-                              <a href={mapsUrl(b)} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-500 hover:underline inline-flex items-center gap-1">
-                                <ExternalLink className="w-3 h-3" /> Maps
-                              </a>
+                              <a href={phoneSearchUrl(b)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1"><Phone className="w-3 h-3" /> Find phone</a>
+                              <a href={mapsUrl(b)} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-500 hover:underline inline-flex items-center gap-1"><ExternalLink className="w-3 h-3" /> Maps</a>
                             </div>
                           )}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-1.5">
                             <span className={`inline-flex w-fit items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium ${tmBadge(tm)}`}>
-                              <BadgeCheck className="w-3 h-3" />
-                              {tm || "Not checked"}
+                              <BadgeCheck className="w-3 h-3" />{tm || "Not checked"}
                             </span>
-                            <a
-                              href={usptoUrl(b.companyName)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={() => markTrademark(b.id, "Checked — see USPTO")}
-                              className="text-xs text-violet-700 hover:underline inline-flex items-center gap-1"
-                            >
-                              Check USPTO ↗
-                            </a>
+                            <a href={usptoUrl(b.companyName)} target="_blank" rel="noopener noreferrer" onClick={() => markTrademark(b.id, "Checked — see USPTO")} className="text-xs text-violet-700 hover:underline">Check USPTO ↗</a>
                             <div className="flex gap-2 text-[10px]">
-                              <button type="button" onClick={() => markTrademark(b.id, "Matched")} className="text-violet-600 hover:underline">
-                                Mark: Has TM
-                              </button>
-                              <button type="button" onClick={() => markTrademark(b.id, "Not Found")} className="text-slate-500 hover:underline">
-                                No TM
-                              </button>
+                              <button type="button" onClick={() => markTrademark(b.id, "Matched")} className="text-violet-600 hover:underline">Mark: Has TM</button>
+                              <button type="button" onClick={() => markTrademark(b.id, "Not Found")} className="text-slate-500 hover:underline">No TM</button>
                             </div>
                           </div>
                         </td>
@@ -461,12 +407,8 @@ export default function SearchPage() {
               <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between">
                 <p className="text-xs text-slate-500">Page {result.page} of {result.totalPages}</p>
                 <div className="flex gap-2">
-                  <button disabled={page <= 1 || loading} onClick={() => setPage((p) => Math.max(1, p - 1))} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40">
-                    <ChevronLeft className="w-4 h-4" /> Prev
-                  </button>
-                  <button disabled={page >= result.totalPages || loading} onClick={() => setPage((p) => p + 1)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40">
-                    Next <ChevronRight className="w-4 h-4" />
-                  </button>
+                  <button disabled={page <= 1 || loading} onClick={() => setPage((p) => Math.max(1, p - 1))} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"><ChevronLeft className="w-4 h-4" /> Prev</button>
+                  <button disabled={page >= result.totalPages || loading} onClick={() => setPage((p) => p + 1)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40">Next <ChevronRight className="w-4 h-4" /></button>
                 </div>
               </div>
             )}
@@ -475,9 +417,8 @@ export default function SearchPage() {
       </div>
 
       <div className="text-xs text-slate-400 space-y-1">
-        <p><strong>Phone:</strong> Official SOS data rarely has phone. Use <em>Find phone</em> → Google public listings / Maps.</p>
-        <p><strong>Trademark:</strong> <em>Check USPTO</em> opens official trademark search. Then mark <em>Has TM</em> / <em>No TM</em> for your CSV export.</p>
-        <p>Full auto phone + bulk USPTO matching needs paid APIs (Hunter/Apollo + USPTO TSDR key).</p>
+        <p><strong>Live free states:</strong> CO, NY, CT, OR, PA (~12M+ records). CT has emails.</p>
+        <p><strong>Phone / Trademark:</strong> Find phone → Google · Check USPTO → mark Has TM / No TM · Export CSV.</p>
       </div>
     </div>
   );

@@ -14,6 +14,7 @@ import {
   Phone,
 } from "lucide-react";
 import { US_STATES, ENTITY_TYPES, BUSINESS_STATUSES } from "@/lib/utils";
+import { toCSV, EXPORT_COLUMNS } from "@/lib/csv";
 
 interface Business {
   id: string;
@@ -33,6 +34,7 @@ interface Business {
   trademarkStatus: string | null;
   trademarkMatch: string | null;
   source: string | null;
+  recordId?: string | null;
 }
 
 interface SearchResponse {
@@ -45,9 +47,11 @@ interface SearchResponse {
   message?: string;
 }
 
+const LIVE_STATES = new Set(["CO", "NY", "CT", "OR"]);
+
 function googleContactUrl(b: Business) {
   const q = encodeURIComponent(
-    `\"${b.companyName}\" ${b.city || ""} ${b.state} email OR phone OR contact OR \"@\"`
+    `"${b.companyName}" ${b.city || ""} ${b.state} email OR phone OR contact OR "@"`
   );
   return `https://www.google.com/search?q=${q}`;
 }
@@ -59,6 +63,17 @@ function googleMapsUrl(b: Business) {
   return `https://www.google.com/maps/search/?api=1&query=${q}`;
 }
 
+function downloadCSV(rows: Business[], filename: string) {
+  const csv = toCSV(rows as unknown as Record<string, unknown>[], EXPORT_COLUMNS);
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function SearchPage() {
   const [filters, setFilters] = useState({
     q: "",
@@ -67,11 +82,13 @@ export default function SearchPage() {
     status: "",
     city: "",
     zip: "",
+    hasEmail: false,
   });
 
   const [appliedFilters, setAppliedFilters] = useState(filters);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [error, setError] = useState("");
 
@@ -86,6 +103,7 @@ export default function SearchPage() {
       if (f.status) params.set("status", f.status);
       if (f.city) params.set("city", f.city);
       if (f.zip) params.set("zip", f.zip);
+      if (f.hasEmail) params.set("hasEmail", "1");
       params.set("page", String(p));
       params.set("limit", "20");
 
@@ -111,7 +129,15 @@ export default function SearchPage() {
   }
 
   function handleClear() {
-    const empty = { q: "", state: "", entityType: "", status: "", city: "", zip: "" };
+    const empty = {
+      q: "",
+      state: "",
+      entityType: "",
+      status: "",
+      city: "",
+      zip: "",
+      hasEmail: false,
+    };
     setFilters(empty);
     setPage(1);
     setAppliedFilters(empty);
@@ -119,6 +145,50 @@ export default function SearchPage() {
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter") handleSearch();
+  }
+
+  async function handleExportCSV() {
+    if (!result || result.data.length === 0) return;
+    setExporting(true);
+    try {
+      // Export current page immediately
+      downloadCSV(
+        result.data,
+        `us-businesses-${appliedFilters.state || "all"}-page${page}.csv`
+      );
+
+      // If more pages, fetch up to 5 pages (100 rows) for a bigger export
+      if (result.totalPages > 1 && result.total > 20) {
+        const maxPages = Math.min(result.totalPages, 5);
+        const all: Business[] = [...result.data];
+        for (let p = 1; p <= maxPages; p++) {
+          if (p === page) continue;
+          const params = new URLSearchParams();
+          if (appliedFilters.q) params.set("q", appliedFilters.q);
+          if (appliedFilters.state) params.set("state", appliedFilters.state);
+          if (appliedFilters.entityType) params.set("entityType", appliedFilters.entityType);
+          if (appliedFilters.status) params.set("status", appliedFilters.status);
+          if (appliedFilters.city) params.set("city", appliedFilters.city);
+          if (appliedFilters.zip) params.set("zip", appliedFilters.zip);
+          if (appliedFilters.hasEmail) params.set("hasEmail", "1");
+          params.set("page", String(p));
+          params.set("limit", "20");
+          const res = await fetch(`/api/businesses/search?${params}`);
+          if (res.ok) {
+            const data: SearchResponse = await res.json();
+            all.push(...data.data);
+          }
+        }
+        // Re-download combined
+        const unique = Array.from(new Map(all.map((b) => [b.id, b])).values());
+        downloadCSV(
+          unique,
+          `us-businesses-${appliedFilters.state || "all"}-${unique.length}-rows.csv`
+        );
+      }
+    } finally {
+      setExporting(false);
+    }
   }
 
   const statusColor = (s: string | null) => {
@@ -135,16 +205,20 @@ export default function SearchPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Search Businesses</h1>
           <p className="text-slate-500 mt-1">
-            Live free data: select <strong>CO</strong> or <strong>NY</strong> for millions of real records
+            Live: <strong>CO, NY, CT, OR</strong> — CT includes many business emails
           </p>
         </div>
         <button
-          disabled={!result || result.data.length === 0}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-100 text-slate-500 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-200 transition"
-          title="CSV export coming soon"
+          onClick={handleExportCSV}
+          disabled={!result || result.data.length === 0 || exporting}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-sm font-medium transition disabled:cursor-not-allowed"
         >
-          <Download className="w-4 h-4" />
-          Export results
+          {exporting ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Download className="w-4 h-4" />
+          )}
+          Export CSV
         </button>
       </div>
 
@@ -156,9 +230,7 @@ export default function SearchPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2">
-            <label className="block text-xs font-medium text-slate-500 mb-1">
-              Company name
-            </label>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Company name</label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
@@ -183,7 +255,7 @@ export default function SearchPage() {
               {US_STATES.map((s) => (
                 <option key={s.code} value={s.code}>
                   {s.code} — {s.name}
-                  {s.code === "CO" || s.code === "NY" ? " ✓ LIVE" : ""}
+                  {LIVE_STATES.has(s.code) ? " ✓ LIVE" : ""}
                 </option>
               ))}
             </select>
@@ -246,6 +318,16 @@ export default function SearchPage() {
           </div>
         </div>
 
+        <label className="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={filters.hasEmail}
+            onChange={(e) => setFilters({ ...filters, hasEmail: e.target.checked })}
+            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+          />
+          Only with business email (best on <strong>CT</strong>)
+        </label>
+
         <div className="flex gap-2 pt-1">
           <button
             type="button"
@@ -282,7 +364,7 @@ export default function SearchPage() {
         <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
           <span className="text-sm font-medium text-slate-700">Results</span>
           <span className="text-xs text-slate-400">
-            {result ? `${result.total.toLocaleString()} record${result.total !== 1 ? "s" : ""}` : "—"}
+            {result ? `${result.total.toLocaleString()} records` : "—"}
           </span>
         </div>
 
@@ -296,7 +378,7 @@ export default function SearchPage() {
             <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
             <p className="text-slate-500 font-medium">No businesses found</p>
             <p className="text-sm text-slate-400 mt-1">
-              Try State = CO or NY, or clear filters.
+              Try State = CT + Has Email, or CO / NY / OR.
             </p>
           </div>
         ) : result ? (
@@ -310,8 +392,7 @@ export default function SearchPage() {
                     <th className="px-4 py-3">Type</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">City</th>
-                    <th className="px-4 py-3">Formed</th>
-                    <th className="px-4 py-3">Agent</th>
+                    <th className="px-4 py-3">Email</th>
                     <th className="px-4 py-3">Contact</th>
                   </tr>
                 </thead>
@@ -319,9 +400,7 @@ export default function SearchPage() {
                   {result.data.map((b) => (
                     <tr key={b.id} className="hover:bg-slate-50/80 transition">
                       <td className="px-4 py-3">
-                        <div className="font-medium text-slate-900 max-w-[220px]">
-                          {b.companyName}
-                        </div>
+                        <div className="font-medium text-slate-900 max-w-[220px]">{b.companyName}</div>
                         {b.entityNumber && (
                           <div className="text-xs text-slate-400 mt-0.5">{b.entityNumber}</div>
                         )}
@@ -345,22 +424,21 @@ export default function SearchPage() {
                         {b.city || "—"}
                         {b.zip ? ` ${b.zip}` : ""}
                       </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                        {b.formationDate || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-slate-600 max-w-[140px] truncate">
-                        {b.registeredAgent || "—"}
+                      <td className="px-4 py-3">
+                        {b.businessEmail ? (
+                          <a
+                            href={`mailto:${b.businessEmail}`}
+                            className="inline-flex items-center gap-1 text-xs text-emerald-700 hover:underline font-medium"
+                          >
+                            <Mail className="w-3 h-3" />
+                            {b.businessEmail}
+                          </a>
+                        ) : (
+                          <span className="text-slate-400 text-xs">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1">
-                          {b.businessEmail && (
-                            <a
-                              href={`mailto:${b.businessEmail}`}
-                              className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                            >
-                              <Mail className="w-3 h-3" /> {b.businessEmail}
-                            </a>
-                          )}
                           {b.businessPhone && (
                             <a
                               href={`tel:${b.businessPhone}`}
@@ -369,27 +447,24 @@ export default function SearchPage() {
                               <Phone className="w-3 h-3" /> {b.businessPhone}
                             </a>
                           )}
-                          {!b.businessEmail && !b.businessPhone && (
-                            <div className="flex flex-col gap-1">
-                              <a
-                                href={googleContactUrl(b)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                                title="Search Google for email / phone"
-                              >
-                                <Mail className="w-3 h-3" /> Find contact
-                              </a>
-                              <a
-                                href={googleMapsUrl(b)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:underline"
-                              >
-                                <ExternalLink className="w-3 h-3" /> Maps
-                              </a>
-                            </div>
+                          {!b.businessEmail && (
+                            <a
+                              href={googleContactUrl(b)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                            >
+                              <Mail className="w-3 h-3" /> Find contact
+                            </a>
                           )}
+                          <a
+                            href={googleMapsUrl(b)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-slate-500 hover:underline"
+                          >
+                            <ExternalLink className="w-3 h-3" /> Maps
+                          </a>
                         </div>
                       </td>
                     </tr>
@@ -407,14 +482,14 @@ export default function SearchPage() {
                   <button
                     disabled={page <= 1 || loading}
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
                   >
                     <ChevronLeft className="w-4 h-4" /> Prev
                   </button>
                   <button
                     disabled={page >= result.totalPages || loading}
                     onClick={() => setPage((p) => p + 1)}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
                   >
                     Next <ChevronRight className="w-4 h-4" />
                   </button>
@@ -426,9 +501,8 @@ export default function SearchPage() {
       </div>
 
       <p className="text-xs text-slate-400">
-        Note: Official SOS open data usually does not include business email/phone.
-        Use <strong>Find contact</strong> to search Google for public contact info.
-        Full automated enrichment needs paid tools (Hunter, Apollo, etc.).
+        CSV export downloads current results (up to ~100 rows). For client emails: set State ={" "}
+        <strong>CT</strong> and tick <strong>Only with business email</strong>, then Export CSV.
       </p>
     </div>
   );

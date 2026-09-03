@@ -4,15 +4,15 @@ import { getOpenDataStats } from "@/lib/sources/stats";
 
 export const dynamic = "force-dynamic";
 
-const LIVE: Record<string, { records: number; label: string }> = {
-  CO: { records: 3100000, label: "Open Data API" },
-  NY: { records: 4200000, label: "Open Data API" },
-};
-
 export default async function StatesPage() {
   const open = await getOpenDataStats();
-  LIVE.CO.records = open.colorado;
-  LIVE.NY.records = open.newYork;
+
+  const LIVE: Record<string, { records: number; label: string }> = {
+    CO: { records: open.colorado, label: "Open Data API" },
+    NY: { records: open.newYork, label: "Open Data API" },
+    CT: { records: open.connecticut, label: "Open Data + Emails" },
+    OR: { records: open.oregon, label: "Open Data API" },
+  };
 
   const liveCount = Object.keys(LIVE).length;
   const remaining = US_STATES.length - liveCount;

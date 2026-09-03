@@ -74,7 +74,7 @@ export async function searchConnecticut(params: {
   limit?: number;
   offset?: number;
 }) {
-  const limit = Math.min(params.limit || 20, 50);
+  const limit = Math.min(params.limit || 20, 100);
   const offset = params.offset || 0;
   const where: string[] = [];
 

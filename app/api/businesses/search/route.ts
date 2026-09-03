@@ -40,8 +40,9 @@ export async function GET(req: NextRequest) {
   const city = searchParams.get("city") || "";
   const zip = searchParams.get("zip") || "";
   const hasEmail = searchParams.get("hasEmail") === "1";
+  const dateFrom = searchParams.get("dateFrom") || "";
+  const dateTo = searchParams.get("dateTo") || "";
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
-  // Allow up to 100 per request for export batches
   const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "20", 10)));
   const offset = (page - 1) * limit;
 
@@ -53,6 +54,8 @@ export async function GET(req: NextRequest) {
         status: status || undefined,
         city: city || undefined,
         zip: zip || undefined,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
         limit,
         offset,
       });
@@ -73,6 +76,8 @@ export async function GET(req: NextRequest) {
         entityType: entityType || undefined,
         city: city || undefined,
         zip: zip || undefined,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
         limit,
         offset,
       });
@@ -136,6 +141,8 @@ export async function GET(req: NextRequest) {
         entityType: entityType || undefined,
         city: city || undefined,
         zip: zip || undefined,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
         limit,
         offset,
       });
@@ -159,6 +166,11 @@ export async function GET(req: NextRequest) {
       if (city) where.city = { contains: city, mode: "insensitive" };
       if (zip) where.zip = { contains: zip };
       if (hasEmail) where.businessEmail = { not: null };
+      if (dateFrom || dateTo) {
+        where.formationDate = {};
+        if (dateFrom) where.formationDate.gte = new Date(dateFrom);
+        if (dateTo) where.formationDate.lte = new Date(dateTo);
+      }
 
       const [total, rows] = await Promise.all([
         prisma.business.count({ where }),
@@ -188,13 +200,56 @@ export async function GET(req: NextRequest) {
       // DB not ready
     }
 
-    if (!state && (q || city || zip || entityType || status || hasEmail)) {
+    if (!state && (q || city || zip || entityType || status || hasEmail || dateFrom || dateTo)) {
       const jobs = [
-        searchColorado({ q: q || undefined, entityType: entityType || undefined, status: status || undefined, city: city || undefined, zip: zip || undefined, limit: 4, offset: 0 }),
-        searchNewYork({ q: q || undefined, entityType: entityType || undefined, city: city || undefined, zip: zip || undefined, limit: 4, offset: 0 }),
-        searchConnecticut({ q: q || undefined, entityType: entityType || undefined, status: status || undefined, city: city || undefined, zip: zip || undefined, hasEmail: hasEmail || undefined, limit: 4, offset: 0 }),
-        searchOregon({ q: q || undefined, entityType: entityType || undefined, city: city || undefined, limit: 4, offset: 0 }),
-        searchPennsylvania({ q: q || undefined, entityType: entityType || undefined, city: city || undefined, zip: zip || undefined, limit: 4, offset: 0 }),
+        searchColorado({
+          q: q || undefined,
+          entityType: entityType || undefined,
+          status: status || undefined,
+          city: city || undefined,
+          zip: zip || undefined,
+          dateFrom: dateFrom || undefined,
+          dateTo: dateTo || undefined,
+          limit: 4,
+          offset: 0,
+        }),
+        searchNewYork({
+          q: q || undefined,
+          entityType: entityType || undefined,
+          city: city || undefined,
+          zip: zip || undefined,
+          dateFrom: dateFrom || undefined,
+          dateTo: dateTo || undefined,
+          limit: 4,
+          offset: 0,
+        }),
+        searchConnecticut({
+          q: q || undefined,
+          entityType: entityType || undefined,
+          status: status || undefined,
+          city: city || undefined,
+          zip: zip || undefined,
+          hasEmail: hasEmail || undefined,
+          limit: 4,
+          offset: 0,
+        }),
+        searchOregon({
+          q: q || undefined,
+          entityType: entityType || undefined,
+          city: city || undefined,
+          limit: 4,
+          offset: 0,
+        }),
+        searchPennsylvania({
+          q: q || undefined,
+          entityType: entityType || undefined,
+          city: city || undefined,
+          zip: zip || undefined,
+          dateFrom: dateFrom || undefined,
+          dateTo: dateTo || undefined,
+          limit: 4,
+          offset: 0,
+        }),
       ];
 
       const settled = await Promise.allSettled(jobs);

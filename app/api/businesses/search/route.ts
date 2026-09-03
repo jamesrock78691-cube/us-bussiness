@@ -34,19 +34,71 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
 
   const q = searchParams.get("q") || "";
-  const state = (searchParams.get("state") || "").toUpperCase();
+  let state = (searchParams.get("state") || "").toUpperCase();
   const entityType = searchParams.get("entityType") || "";
   const status = searchParams.get("status") || "";
   const city = searchParams.get("city") || "";
   const zip = searchParams.get("zip") || "";
   const hasEmail = searchParams.get("hasEmail") === "1";
+  const hasGmail = searchParams.get("hasGmail") === "1";
   const dateFrom = searchParams.get("dateFrom") || "";
   const dateTo = searchParams.get("dateTo") || "";
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
-  const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "20", 10)));
+  const limit = Math.min(
+    100,
+    Math.max(1, parseInt(searchParams.get("limit") || "20", 10))
+  );
   const offset = (page - 1) * limit;
 
+  // Official free registries: only CT publishes business emails publicly.
+  // Email / Gmail filters always run against CT live data.
+  const emailFilterActive = hasEmail || hasGmail;
+  let emailAutoRouted = false;
+  if (emailFilterActive && state !== "CT") {
+    state = "CT";
+    emailAutoRouted = true;
+  }
+
   try {
+    if (state === "CT" || emailFilterActive) {
+      const result = await searchConnecticut({
+        q: q || undefined,
+        entityType: entityType || undefined,
+        status: status || undefined,
+        city: city || undefined,
+        zip: zip || undefined,
+        hasEmail: hasEmail && !hasGmail ? true : undefined,
+        hasGmail: hasGmail || undefined,
+        limit,
+        offset,
+      });
+
+      const msgParts = [
+        "Live data from Connecticut SOS Open Data",
+        hasGmail
+          ? "— Gmail only (~280k records with @gmail.com)"
+          : hasEmail
+            ? "— with business email (~800k records)"
+            : "",
+      ];
+      if (emailAutoRouted) {
+        msgParts.push(
+          "Email filters only work on CT public data; search auto-switched to Connecticut."
+        );
+      }
+
+      return NextResponse.json({
+        source: "connecticut-open-data",
+        total: result.total,
+        page,
+        limit,
+        totalPages: Math.ceil(result.total / limit) || 1,
+        data: result.data,
+        message: msgParts.filter(Boolean).join(" "),
+        autoState: emailAutoRouted ? "CT" : undefined,
+      });
+    }
+
     if (state === "CO") {
       const result = await searchColorado({
         q: q || undefined,
@@ -88,31 +140,7 @@ export async function GET(req: NextRequest) {
         limit,
         totalPages: Math.ceil(result.total / limit) || 1,
         data: result.data,
-        message: "Live data from New York DOS Open Data (~4.2M active entities)",
-      });
-    }
-
-    if (state === "CT") {
-      const result = await searchConnecticut({
-        q: q || undefined,
-        entityType: entityType || undefined,
-        status: status || undefined,
-        city: city || undefined,
-        zip: zip || undefined,
-        hasEmail: hasEmail || undefined,
-        limit,
-        offset,
-      });
-      return NextResponse.json({
-        source: "connecticut-open-data",
-        total: result.total,
-        page,
-        limit,
-        totalPages: Math.ceil(result.total / limit) || 1,
-        data: result.data,
-        message: hasEmail
-          ? "Connecticut businesses with filed email addresses (official open data)"
-          : "Live data from Connecticut SOS Open Data (~1.3M entities). Many records include business email.",
+        message: "Live data from New York DOS Open Data",
       });
     }
 
@@ -131,7 +159,7 @@ export async function GET(req: NextRequest) {
         limit,
         totalPages: Math.ceil(result.total / limit) || 1,
         data: result.data,
-        message: "Live data from Oregon SOS Open Data (~1.5M active businesses)",
+        message: "Live data from Oregon SOS Open Data",
       });
     }
 
@@ -153,32 +181,35 @@ export async function GET(req: NextRequest) {
         limit,
         totalPages: Math.ceil(result.total / limit) || 1,
         data: result.data,
-        message: "Live data from Pennsylvania DOS Open Data (~2–4M entity rows, public domain)",
+        message: "Live data from Pennsylvania DOS Open Data",
       });
     }
 
+    // Optional Prisma path when DB is seeded
     try {
-      const where: any = {};
+      const where: Record<string, unknown> = {};
       if (q) where.companyName = { contains: q, mode: "insensitive" };
       if (state) where.state = state;
       if (entityType) where.entityType = entityType;
-      if (status) where.status = { equals: status, mode: "insensitive" };
+      if (status) where.status = status;
       if (city) where.city = { contains: city, mode: "insensitive" };
-      if (zip) where.zip = { contains: zip };
+      if (zip) where.zip = { startsWith: zip };
       if (hasEmail) where.businessEmail = { not: null };
       if (dateFrom || dateTo) {
         where.formationDate = {};
-        if (dateFrom) where.formationDate.gte = new Date(dateFrom);
-        if (dateTo) where.formationDate.lte = new Date(dateTo);
+        if (dateFrom)
+          (where.formationDate as Record<string, Date>).gte = new Date(dateFrom);
+        if (dateTo)
+          (where.formationDate as Record<string, Date>).lte = new Date(dateTo);
       }
 
       const [total, rows] = await Promise.all([
         prisma.business.count({ where }),
         prisma.business.findMany({
           where,
-          orderBy: { companyName: "asc" },
           skip: offset,
           take: limit,
+          orderBy: { companyName: "asc" },
         }),
       ]);
 
@@ -188,7 +219,7 @@ export async function GET(req: NextRequest) {
           total,
           page,
           limit,
-          totalPages: Math.ceil(total / limit),
+          totalPages: Math.ceil(total / limit) || 1,
           data: rows.map((r) => ({
             ...r,
             formationDate: r.formationDate?.toISOString().slice(0, 10) ?? null,
@@ -200,7 +231,7 @@ export async function GET(req: NextRequest) {
       // DB not ready
     }
 
-    if (!state && (q || city || zip || entityType || status || hasEmail || dateFrom || dateTo)) {
+    if (!state && (q || city || zip || entityType || status || dateFrom || dateTo)) {
       const jobs = [
         searchColorado({
           q: q || undefined,
@@ -229,7 +260,6 @@ export async function GET(req: NextRequest) {
           status: status || undefined,
           city: city || undefined,
           zip: zip || undefined,
-          hasEmail: hasEmail || undefined,
           limit: 4,
           offset: 0,
         }),
@@ -253,7 +283,7 @@ export async function GET(req: NextRequest) {
       ];
 
       const settled = await Promise.allSettled(jobs);
-      const merged: any[] = [];
+      const merged: unknown[] = [];
       let total = 0;
       for (const s of settled) {
         if (s.status === "fulfilled") {
@@ -271,7 +301,7 @@ export async function GET(req: NextRequest) {
           totalPages: 1,
           data: merged.slice(0, limit),
           message:
-            "Results from free open data (CO + NY + CT + OR + PA). Select one state for full pagination.",
+            "Results from free open data (CO + NY + CT + OR + PA). Select one state for full pagination. For email/Gmail use the email filters (CT).",
         });
       }
     }
@@ -284,21 +314,11 @@ export async function GET(req: NextRequest) {
       totalPages: 1,
       data: SAMPLE_FALLBACK,
       message:
-        "Select State = CO, NY, CT, OR, or PA for live free open data. CT often includes business emails.",
+        "Select State = CO, NY, CT, OR, or PA for live free open data. Use Email/Gmail filters for Connecticut contact emails.",
     });
-  } catch (error: any) {
-    console.error("Search API error:", error);
-    return NextResponse.json(
-      {
-        source: "error",
-        total: 0,
-        page: 1,
-        limit,
-        totalPages: 0,
-        data: [],
-        message: error?.message || "Search failed",
-      },
-      { status: 500 }
-    );
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Search failed";
+    console.error("Search error:", e);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

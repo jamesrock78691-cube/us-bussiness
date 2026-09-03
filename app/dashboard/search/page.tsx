@@ -10,6 +10,8 @@ import {
   ChevronRight,
   Building2,
   ExternalLink,
+  Mail,
+  Phone,
 } from "lucide-react";
 import { US_STATES, ENTITY_TYPES, BUSINESS_STATUSES } from "@/lib/utils";
 
@@ -34,13 +36,27 @@ interface Business {
 }
 
 interface SearchResponse {
-  source: "database" | "sample";
+  source: string;
   total: number;
   page: number;
   limit: number;
   totalPages: number;
   data: Business[];
   message?: string;
+}
+
+function googleContactUrl(b: Business) {
+  const q = encodeURIComponent(
+    `\"${b.companyName}\" ${b.city || ""} ${b.state} email OR phone OR contact OR \"@\"`
+  );
+  return `https://www.google.com/search?q=${q}`;
+}
+
+function googleMapsUrl(b: Business) {
+  const q = encodeURIComponent(
+    `${b.companyName} ${b.principalAddress || ""} ${b.city || ""} ${b.state} ${b.zip || ""}`
+  );
+  return `https://www.google.com/maps/search/?api=1&query=${q}`;
 }
 
 export default function SearchPage() {
@@ -77,7 +93,7 @@ export default function SearchPage() {
       if (!res.ok) throw new Error("Search failed");
       const data: SearchResponse = await res.json();
       setResult(data);
-    } catch (err) {
+    } catch {
       setError("Search request failed. Please try again.");
       setResult(null);
     } finally {
@@ -85,7 +101,6 @@ export default function SearchPage() {
     }
   }, []);
 
-  // Initial load
   useEffect(() => {
     doSearch(appliedFilters, page);
   }, [appliedFilters, page, doSearch]);
@@ -120,7 +135,7 @@ export default function SearchPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Search Businesses</h1>
           <p className="text-slate-500 mt-1">
-            Filter and find businesses across all 50 states
+            Live free data: select <strong>CO</strong> or <strong>NY</strong> for millions of real records
           </p>
         </div>
         <button
@@ -133,7 +148,6 @@ export default function SearchPage() {
         </button>
       </div>
 
-      {/* Filters */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
         <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
           <Filter className="w-4 h-4" />
@@ -169,6 +183,7 @@ export default function SearchPage() {
               {US_STATES.map((s) => (
                 <option key={s.code} value={s.code}>
                   {s.code} — {s.name}
+                  {s.code === "CO" || s.code === "NY" ? " ✓ LIVE" : ""}
                 </option>
               ))}
             </select>
@@ -258,31 +273,31 @@ export default function SearchPage() {
       )}
 
       {result?.message && (
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 rounded-lg">
+        <div className="bg-blue-50 border border-blue-200 text-blue-800 text-sm px-4 py-3 rounded-lg">
           {result.message}
         </div>
       )}
 
-      {/* Results */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
           <span className="text-sm font-medium text-slate-700">Results</span>
           <span className="text-xs text-slate-400">
-            {result ? `${result.total} record${result.total !== 1 ? "s" : ""}` : "—"}
-            {result?.source === "sample" && " (sample)"}
+            {result ? `${result.total.toLocaleString()} record${result.total !== 1 ? "s" : ""}` : "—"}
           </span>
         </div>
 
         {loading && !result ? (
           <div className="p-12 text-center">
             <Loader2 className="w-8 h-8 text-blue-500 animate-spin mx-auto mb-3" />
-            <p className="text-slate-500 text-sm">Searching...</p>
+            <p className="text-slate-500 text-sm">Searching live open data...</p>
           </div>
         ) : result && result.data.length === 0 ? (
           <div className="p-12 text-center">
             <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-3" />
             <p className="text-slate-500 font-medium">No businesses found</p>
-            <p className="text-sm text-slate-400 mt-1">Try changing filters or clear them.</p>
+            <p className="text-sm text-slate-400 mt-1">
+              Try State = CO or NY, or clear filters.
+            </p>
           </div>
         ) : result ? (
           <>
@@ -296,15 +311,17 @@ export default function SearchPage() {
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">City</th>
                     <th className="px-4 py-3">Formed</th>
+                    <th className="px-4 py-3">Agent</th>
                     <th className="px-4 py-3">Contact</th>
-                    <th className="px-4 py-3">Website</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {result.data.map((b) => (
                     <tr key={b.id} className="hover:bg-slate-50/80 transition">
                       <td className="px-4 py-3">
-                        <div className="font-medium text-slate-900">{b.companyName}</div>
+                        <div className="font-medium text-slate-900 max-w-[220px]">
+                          {b.companyName}
+                        </div>
                         {b.entityNumber && (
                           <div className="text-xs text-slate-400 mt-0.5">{b.entityNumber}</div>
                         )}
@@ -331,26 +348,49 @@ export default function SearchPage() {
                       <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
                         {b.formationDate || "—"}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="text-xs text-slate-600 space-y-0.5">
-                          {b.businessEmail && <div>{b.businessEmail}</div>}
-                          {b.businessPhone && <div>{b.businessPhone}</div>}
-                          {!b.businessEmail && !b.businessPhone && <span className="text-slate-400">—</span>}
-                        </div>
+                      <td className="px-4 py-3 text-xs text-slate-600 max-w-[140px] truncate">
+                        {b.registeredAgent || "—"}
                       </td>
                       <td className="px-4 py-3">
-                        {b.website ? (
-                          <a
-                            href={b.website}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-blue-600 hover:underline text-xs"
-                          >
-                            Visit <ExternalLink className="w-3 h-3" />
-                          </a>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
+                        <div className="flex flex-col gap-1">
+                          {b.businessEmail && (
+                            <a
+                              href={`mailto:${b.businessEmail}`}
+                              className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                            >
+                              <Mail className="w-3 h-3" /> {b.businessEmail}
+                            </a>
+                          )}
+                          {b.businessPhone && (
+                            <a
+                              href={`tel:${b.businessPhone}`}
+                              className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                            >
+                              <Phone className="w-3 h-3" /> {b.businessPhone}
+                            </a>
+                          )}
+                          {!b.businessEmail && !b.businessPhone && (
+                            <div className="flex flex-col gap-1">
+                              <a
+                                href={googleContactUrl(b)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                                title="Search Google for email / phone"
+                              >
+                                <Mail className="w-3 h-3" /> Find contact
+                              </a>
+                              <a
+                                href={googleMapsUrl(b)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:underline"
+                              >
+                                <ExternalLink className="w-3 h-3" /> Maps
+                              </a>
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -358,7 +398,6 @@ export default function SearchPage() {
               </table>
             </div>
 
-            {/* Pagination */}
             {result.totalPages > 1 && (
               <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between">
                 <p className="text-xs text-slate-500">
@@ -385,6 +424,12 @@ export default function SearchPage() {
           </>
         ) : null}
       </div>
+
+      <p className="text-xs text-slate-400">
+        Note: Official SOS open data usually does not include business email/phone.
+        Use <strong>Find contact</strong> to search Google for public contact info.
+        Full automated enrichment needs paid tools (Hunter, Apollo, etc.).
+      </p>
     </div>
   );
 }

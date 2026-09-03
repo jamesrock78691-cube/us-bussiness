@@ -10,7 +10,6 @@ export function cleanCompanyName(name: string): string {
 
 export function usptoSearchUrl(companyName: string): string {
   const q = encodeURIComponent(cleanCompanyName(companyName));
-  // Official USPTO Trademark Search
   return `https://tmsearch.uspto.gov/search/search-information?query=${q}`;
 }
 
@@ -26,12 +25,14 @@ export function googlePhoneUrl(opts: {
   address?: string | null;
 }): string {
   const parts = [
-    `\"${opts.companyName}\"`,
+    `"${opts.companyName}"`,
     opts.city || "",
     opts.state || "",
-    "(phone OR tel OR \"call us\" OR \"contact us\" OR \"(")",
+    '(phone OR tel OR "call us" OR "contact us")',
   ];
-  return `https://www.google.com/search?q=${encodeURIComponent(parts.filter(Boolean).join(" "))}`;
+  return `https://www.google.com/search?q=${encodeURIComponent(
+    parts.filter(Boolean).join(" ")
+  )}`;
 }
 
 export function googleEmailUrl(opts: {
@@ -40,12 +41,14 @@ export function googleEmailUrl(opts: {
   state?: string | null;
 }): string {
   const parts = [
-    `\"${opts.companyName}\"`,
+    `"${opts.companyName}"`,
     opts.city || "",
     opts.state || "",
-    "(email OR \"@\" OR contact@ OR info@)",
+    '(email OR contact@ OR info@ OR "@")',
   ];
-  return `https://www.google.com/search?q=${encodeURIComponent(parts.filter(Boolean).join(" "))}`;
+  return `https://www.google.com/search?q=${encodeURIComponent(
+    parts.filter(Boolean).join(" ")
+  )}`;
 }
 
 export function googleMapsUrl(opts: {
@@ -55,13 +58,7 @@ export function googleMapsUrl(opts: {
   address?: string | null;
   zip?: string | null;
 }): string {
-  const q = [
-    opts.companyName,
-    opts.address,
-    opts.city,
-    opts.state,
-    opts.zip,
-  ]
+  const q = [opts.companyName, opts.address, opts.city, opts.state, opts.zip]
     .filter(Boolean)
     .join(" ");
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;

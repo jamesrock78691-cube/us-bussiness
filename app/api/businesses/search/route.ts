@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { searchColorado } from "@/lib/sources/colorado";
+import { searchNewYork } from "@/lib/sources/newyork";
 
-// Sample data so search works even before real state collectors are ready
-const SAMPLE_BUSINESSES = [
+// Keep a small sample fallback for when no state is selected / DB empty
+const SAMPLE_FALLBACK = [
   {
     id: "sample-1",
     companyName: "Acme Technologies LLC",
@@ -15,473 +17,95 @@ const SAMPLE_BUSINESSES = [
     city: "Wilmington",
     zip: "19801",
     registeredAgent: "Corporation Service Company",
-    website: "https://acmetech.example.com",
-    businessEmail: "info@acmetech.example.com",
-    businessPhone: "(302) 555-0142",
-    trademarkStatus: "Not Found",
-    trademarkMatch: null,
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-2",
-    companyName: "Texas Solar Dynamics Inc",
-    state: "TX",
-    entityType: "Corporation",
-    entityNumber: "0803456789",
-    status: "Active",
-    formationDate: "2017-08-22",
-    principalAddress: "500 W 2nd St Suite 1900",
-    city: "Austin",
-    zip: "78701",
-    registeredAgent: "Registered Agents Inc",
-    website: "https://texassolar.example.com",
-    businessEmail: "contact@texassolar.example.com",
-    businessPhone: "(512) 555-0198",
-    trademarkStatus: "Matched",
-    trademarkMatch: "TEXAS SOLAR DYNAMICS",
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-3",
-    companyName: "Golden State Logistics LLC",
-    state: "CA",
-    entityType: "LLC",
-    entityNumber: "202112345678",
-    status: "Active",
-    formationDate: "2021-01-10",
-    principalAddress: "350 S Grand Ave",
-    city: "Los Angeles",
-    zip: "90071",
-    registeredAgent: "CT Corporation System",
-    website: null,
-    businessEmail: "ops@gslogistics.example.com",
-    businessPhone: "(213) 555-0110",
-    trademarkStatus: "Not Found",
-    trademarkMatch: null,
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-4",
-    companyName: "Empire State Consulting Corp",
-    state: "NY",
-    entityType: "Corporation",
-    entityNumber: "NY-5544332",
-    status: "Active",
-    formationDate: "2015-11-05",
-    principalAddress: "28 Liberty St",
-    city: "New York",
-    zip: "10005",
-    registeredAgent: "National Registered Agents",
-    website: "https://empireconsulting.example.com",
-    businessEmail: null,
-    businessPhone: "(212) 555-0177",
-    trademarkStatus: "Pending",
-    trademarkMatch: null,
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-5",
-    companyName: "Sunshine Health Partners LLC",
-    state: "FL",
-    entityType: "LLC",
-    entityNumber: "L21000123456",
-    status: "Active",
-    formationDate: "2020-06-18",
-    principalAddress: "100 SE 2nd St",
-    city: "Miami",
-    zip: "33131",
-    registeredAgent: "Florida Registered Agent LLC",
-    website: "https://sunshinehealth.example.com",
-    businessEmail: "hello@sunshinehealth.example.com",
-    businessPhone: "(305) 555-0133",
-    trademarkStatus: "Matched",
-    trademarkMatch: "SUNSHINE HEALTH",
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-6",
-    companyName: "Midwest Manufacturing Co",
-    state: "IL",
-    entityType: "Corporation",
-    entityNumber: "6045-123-4",
-    status: "Active",
-    formationDate: "2012-04-30",
-    principalAddress: "233 S Wacker Dr",
-    city: "Chicago",
-    zip: "60606",
-    registeredAgent: "Illinois Corporation Service Co",
-    website: null,
-    businessEmail: "sales@midwestmfg.example.com",
-    businessPhone: "(312) 555-0166",
-    trademarkStatus: "Not Found",
-    trademarkMatch: null,
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-7",
-    companyName: "Pacific Northwest Brewing LLC",
-    state: "WA",
-    entityType: "LLC",
-    entityNumber: "604-123-456",
-    status: "Active",
-    formationDate: "2018-09-12",
-    principalAddress: "1201 3rd Ave",
-    city: "Seattle",
-    zip: "98101",
-    registeredAgent: "Corporation Service Company",
-    website: "https://pnwbrewing.example.com",
-    businessEmail: "info@pnwbrewing.example.com",
-    businessPhone: "(206) 555-0188",
-    trademarkStatus: "Matched",
-    trademarkMatch: "PACIFIC NORTHWEST BREWING",
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-8",
-    companyName: "Rocky Mountain Outfitters Inc",
-    state: "CO",
-    entityType: "Corporation",
-    entityNumber: "20181234567",
-    status: "Active",
-    formationDate: "2016-02-28",
-    principalAddress: "1700 Broadway",
-    city: "Denver",
-    zip: "80202",
-    registeredAgent: "The Corporation Company",
-    website: "https://rmoutfitters.example.com",
-    businessEmail: null,
-    businessPhone: "(303) 555-0144",
-    trademarkStatus: "Not Found",
-    trademarkMatch: null,
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-9",
-    companyName: "Liberty Digital Media LLC",
-    state: "PA",
-    entityType: "LLC",
-    entityNumber: "6543210",
-    status: "Inactive",
-    formationDate: "2014-07-19",
-    principalAddress: "1650 Arch St",
-    city: "Philadelphia",
-    zip: "19103",
-    registeredAgent: "Corporation Service Company",
     website: null,
     businessEmail: null,
     businessPhone: null,
-    trademarkStatus: "Not Found",
+    trademarkStatus: null,
     trademarkMatch: null,
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-10",
-    companyName: "Bayou Energy Solutions Corp",
-    state: "LA",
-    entityType: "Corporation",
-    entityNumber: "41234567K",
-    status: "Active",
-    formationDate: "2019-12-01",
-    principalAddress: "909 Poydras St",
-    city: "New Orleans",
-    zip: "70112",
-    registeredAgent: "Louisiana Registered Agent LLC",
-    website: "https://bayouenergy.example.com",
-    businessEmail: "contact@bayouenergy.example.com",
-    businessPhone: "(504) 555-0199",
-    trademarkStatus: "Pending",
-    trademarkMatch: null,
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-11",
-    companyName: "Desert Peak Properties LLC",
-    state: "AZ",
-    entityType: "LLC",
-    entityNumber: "L-2154321",
-    status: "Active",
-    formationDate: "2022-03-08",
-    principalAddress: "2398 E Camelback Rd",
-    city: "Phoenix",
-    zip: "85016",
-    registeredAgent: "Arizona Registered Agent LLC",
-    website: null,
-    businessEmail: "leasing@desertpeak.example.com",
-    businessPhone: "(602) 555-0122",
-    trademarkStatus: "Not Found",
-    trademarkMatch: null,
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-12",
-    companyName: "Great Lakes Shipping Inc",
-    state: "MI",
-    entityType: "Corporation",
-    entityNumber: "802345678",
-    status: "Active",
-    formationDate: "2011-05-14",
-    principalAddress: "100 Renaissance Center",
-    city: "Detroit",
-    zip: "48243",
-    registeredAgent: "The Corporation Company",
-    website: "https://glshipping.example.com",
-    businessEmail: "ops@glshipping.example.com",
-    businessPhone: "(313) 555-0155",
-    trademarkStatus: "Matched",
-    trademarkMatch: "GREAT LAKES SHIPPING",
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-13",
-    companyName: "Silicon Valley Analytics LLC",
-    state: "CA",
-    entityType: "LLC",
-    entityNumber: "201934567890",
-    status: "Active",
-    formationDate: "2019-07-25",
-    principalAddress: "1 Infinite Loop",
-    city: "Cupertino",
-    zip: "95014",
-    registeredAgent: "CT Corporation System",
-    website: "https://svanalytics.example.com",
-    businessEmail: "team@svanalytics.example.com",
-    businessPhone: "(408) 555-0171",
-    trademarkStatus: "Matched",
-    trademarkMatch: "SILICON VALLEY ANALYTICS",
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-14",
-    companyName: "Lone Star Food Group Inc",
-    state: "TX",
-    entityType: "Corporation",
-    entityNumber: "0802987654",
-    status: "Dissolved",
-    formationDate: "2009-01-20",
-    principalAddress: "2200 Ross Ave",
-    city: "Dallas",
-    zip: "75201",
-    registeredAgent: "Registered Agents Inc",
-    website: null,
-    businessEmail: null,
-    businessPhone: null,
-    trademarkStatus: "Not Found",
-    trademarkMatch: null,
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-15",
-    companyName: "Atlantic Coast Capital LLC",
-    state: "NJ",
-    entityType: "LLC",
-    entityNumber: "0450123456",
-    status: "Active",
-    formationDate: "2018-10-03",
-    principalAddress: "101 Hudson St",
-    city: "Jersey City",
-    zip: "07302",
-    registeredAgent: "Corporation Service Company",
-    website: "https://atlanticcapital.example.com",
-    businessEmail: "ir@atlanticcapital.example.com",
-    businessPhone: "(201) 555-0160",
-    trademarkStatus: "Not Found",
-    trademarkMatch: null,
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-16",
-    companyName: "Blue Ridge Timber Co",
-    state: "NC",
-    entityType: "Corporation",
-    entityNumber: "1234567",
-    status: "Active",
-    formationDate: "2013-08-11",
-    principalAddress: "301 N Main St",
-    city: "Winston-Salem",
-    zip: "27101",
-    registeredAgent: "North Carolina Registered Agent",
-    website: null,
-    businessEmail: "info@blueridgetimber.example.com",
-    businessPhone: "(336) 555-0139",
-    trademarkStatus: "Not Found",
-    trademarkMatch: null,
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-17",
-    companyName: "Cascade Software Partners LLC",
-    state: "OR",
-    entityType: "LLC",
-    entityNumber: "1234567-89",
-    status: "Active",
-    formationDate: "2020-11-30",
-    principalAddress: "111 SW 5th Ave",
-    city: "Portland",
-    zip: "97204",
-    registeredAgent: "Oregon Registered Agent LLC",
-    website: "https://cascadesoftware.example.com",
-    businessEmail: "hello@cascadesoftware.example.com",
-    businessPhone: "(503) 555-0182",
-    trademarkStatus: "Pending",
-    trademarkMatch: null,
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-18",
-    companyName: "Heartland Agribusiness Inc",
-    state: "IA",
-    entityType: "Corporation",
-    entityNumber: "456789",
-    status: "Active",
-    formationDate: "2008-03-22",
-    principalAddress: "666 Grand Ave",
-    city: "Des Moines",
-    zip: "50309",
-    registeredAgent: "Iowa Corporation Service",
-    website: null,
-    businessEmail: "office@heartlandag.example.com",
-    businessPhone: "(515) 555-0147",
-    trademarkStatus: "Not Found",
-    trademarkMatch: null,
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-19",
-    companyName: "Gotham Fintech Solutions LLC",
-    state: "NY",
-    entityType: "LLC",
-    entityNumber: "NY-9988776",
-    status: "Active",
-    formationDate: "2021-05-17",
-    principalAddress: "1 World Trade Center",
-    city: "New York",
-    zip: "10007",
-    registeredAgent: "National Registered Agents",
-    website: "https://gothamfintech.example.com",
-    businessEmail: "support@gothamfintech.example.com",
-    businessPhone: "(646) 555-0191",
-    trademarkStatus: "Matched",
-    trademarkMatch: "GOTHAM FINTECH",
-    source: "Sample Data",
-    sourceUrl: null,
-    lastChecked: new Date().toISOString(),
-  },
-  {
-    id: "sample-20",
-    companyName: "Evergreen Medical Devices Inc",
-    state: "WA",
-    entityType: "Corporation",
-    entityNumber: "602-987-654",
-    status: "Active",
-    formationDate: "2016-09-09",
-    principalAddress: "600 4th Ave",
-    city: "Seattle",
-    zip: "98104",
-    registeredAgent: "Corporation Service Company",
-    website: "https://evergreenmed.example.com",
-    businessEmail: "info@evergreenmed.example.com",
-    businessPhone: "(206) 555-0150",
-    trademarkStatus: "Matched",
-    trademarkMatch: "EVERGREEN MEDICAL",
     source: "Sample Data",
     sourceUrl: null,
     lastChecked: new Date().toISOString(),
   },
 ];
 
-function filterSample(data: typeof SAMPLE_BUSINESSES, params: {
-  q?: string;
-  state?: string;
-  entityType?: string;
-  status?: string;
-  city?: string;
-  zip?: string;
-}) {
-  return data.filter((b) => {
-    if (params.q && !b.companyName.toLowerCase().includes(params.q.toLowerCase())) return false;
-    if (params.state && b.state !== params.state) return false;
-    if (params.entityType && b.entityType !== params.entityType) return false;
-    if (params.status && b.status !== params.status) return false;
-    if (params.city && !(b.city || "").toLowerCase().includes(params.city.toLowerCase())) return false;
-    if (params.zip && !(b.zip || "").includes(params.zip)) return false;
-    return true;
-  });
-}
-
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
 
   const q = searchParams.get("q") || "";
-  const state = searchParams.get("state") || "";
+  const state = (searchParams.get("state") || "").toUpperCase();
   const entityType = searchParams.get("entityType") || "";
   const status = searchParams.get("status") || "";
   const city = searchParams.get("city") || "";
   const zip = searchParams.get("zip") || "";
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
   const limit = Math.min(50, Math.max(1, parseInt(searchParams.get("limit") || "20", 10)));
-  const skip = (page - 1) * limit;
+  const offset = (page - 1) * limit;
 
   try {
-    const where: any = {};
+    // ── Live free open-data sources ──────────────────────────────
+    if (state === "CO") {
+      const result = await searchColorado({
+        q: q || undefined,
+        entityType: entityType || undefined,
+        status: status || undefined,
+        city: city || undefined,
+        zip: zip || undefined,
+        limit,
+        offset,
+      });
 
-    if (q) {
-      where.companyName = { contains: q, mode: "insensitive" };
+      return NextResponse.json({
+        source: "colorado-open-data",
+        total: result.total,
+        page,
+        limit,
+        totalPages: Math.ceil(result.total / limit) || 1,
+        data: result.data,
+        message: "Live data from Colorado SOS Open Data (~3.1M entities)",
+      });
     }
-    if (state) where.state = state;
-    if (entityType) where.entityType = entityType;
-    if (status) where.status = { equals: status, mode: "insensitive" };
-    if (city) where.city = { contains: city, mode: "insensitive" };
-    if (zip) where.zip = { contains: zip };
 
-    const [total, rows] = await Promise.all([
-      prisma.business.count({ where }),
-      prisma.business.findMany({
-        where,
-        orderBy: { companyName: "asc" },
-        skip,
-        take: limit,
-      }),
-    ]);
+    if (state === "NY") {
+      const result = await searchNewYork({
+        q: q || undefined,
+        entityType: entityType || undefined,
+        city: city || undefined,
+        zip: zip || undefined,
+        limit,
+        offset,
+      });
 
-    // If DB has real data, return it
-    if (total > 0 || Object.keys(where).length === 0) {
-      // still prefer real data even if empty when no filters
+      return NextResponse.json({
+        source: "newyork-open-data",
+        total: result.total,
+        page,
+        limit,
+        totalPages: Math.ceil(result.total / limit) || 1,
+        data: result.data,
+        message: "Live data from New York DOS Open Data (~4.2M active entities)",
+      });
+    }
+
+    // ── Try our own PostgreSQL first ─────────────────────────────
+    try {
+      const where: any = {};
+      if (q) where.companyName = { contains: q, mode: "insensitive" };
+      if (state) where.state = state;
+      if (entityType) where.entityType = entityType;
+      if (status) where.status = { equals: status, mode: "insensitive" };
+      if (city) where.city = { contains: city, mode: "insensitive" };
+      if (zip) where.zip = { contains: zip };
+
+      const [total, rows] = await Promise.all([
+        prisma.business.count({ where }),
+        prisma.business.findMany({
+          where,
+          orderBy: { companyName: "asc" },
+          skip: offset,
+          take: limit,
+        }),
+      ]);
+
       if (total > 0) {
         return NextResponse.json({
           source: "database",
@@ -496,36 +120,82 @@ export async function GET(req: NextRequest) {
           })),
         });
       }
+    } catch {
+      // DB not ready — continue to free sources / sample
     }
 
-    // Fallback to sample data
-    const filtered = filterSample(SAMPLE_BUSINESSES, { q, state, entityType, status, city, zip });
-    const paged = filtered.slice(skip, skip + limit);
+    // ── No state selected → try both free sources in parallel (limited) ──
+    if (!state && (q || city || zip || entityType || status)) {
+      const [co, ny] = await Promise.allSettled([
+        searchColorado({
+          q: q || undefined,
+          entityType: entityType || undefined,
+          status: status || undefined,
+          city: city || undefined,
+          zip: zip || undefined,
+          limit: Math.ceil(limit / 2),
+          offset: 0,
+        }),
+        searchNewYork({
+          q: q || undefined,
+          entityType: entityType || undefined,
+          city: city || undefined,
+          zip: zip || undefined,
+          limit: Math.ceil(limit / 2),
+          offset: 0,
+        }),
+      ]);
 
+      const merged: any[] = [];
+      let total = 0;
+
+      if (co.status === "fulfilled") {
+        merged.push(...co.value.data);
+        total += co.value.total;
+      }
+      if (ny.status === "fulfilled") {
+        merged.push(...ny.value.data);
+        total += ny.value.total;
+      }
+
+      if (merged.length > 0) {
+        return NextResponse.json({
+          source: "multi-open-data",
+          total,
+          page: 1,
+          limit,
+          totalPages: 1,
+          data: merged.slice(0, limit),
+          message:
+            "Results from free open data (Colorado + New York). Select a state for full pagination.",
+        });
+      }
+    }
+
+    // Fallback sample
     return NextResponse.json({
       source: "sample",
-      total: filtered.length,
-      page,
+      total: SAMPLE_FALLBACK.length,
+      page: 1,
       limit,
-      totalPages: Math.ceil(filtered.length / limit) || 1,
-      data: paged,
-      message: "Showing sample data. Connect real state data to replace this.",
+      totalPages: 1,
+      data: SAMPLE_FALLBACK,
+      message:
+        "Select State = CO (Colorado) or NY (New York) to search real free open data. More free states coming soon.",
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Search API error:", error);
-
-    // DB not available → pure sample fallback
-    const filtered = filterSample(SAMPLE_BUSINESSES, { q, state, entityType, status, city, zip });
-    const paged = filtered.slice(skip, skip + limit);
-
-    return NextResponse.json({
-      source: "sample",
-      total: filtered.length,
-      page,
-      limit,
-      totalPages: Math.ceil(filtered.length / limit) || 1,
-      data: paged,
-      message: "Database not connected. Showing sample data for demo.",
-    });
+    return NextResponse.json(
+      {
+        source: "error",
+        total: 0,
+        page: 1,
+        limit,
+        totalPages: 0,
+        data: [],
+        message: error?.message || "Search failed",
+      },
+      { status: 500 }
+    );
   }
 }

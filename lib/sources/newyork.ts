@@ -100,7 +100,7 @@ export async function searchNewYork(params: {
   }
   if (params.entityType) {
     const t = params.entityType.toUpperCase();
-    if (t === "LLC") where.push(`upper(entity_type) like '%LIMITED LIABILITY%');`);
+    if (t === "LLC") where.push(`upper(entity_type) like '%LIMITED LIABILITY%'`);
     else if (t === "CORPORATION") where.push(`upper(entity_type) like '%CORPORATION%'`);
     else if (t === "LP") where.push(`upper(entity_type) like '%LIMITED PARTNERSHIP%' AND upper(entity_type) not like '%LIABILITY%'`);
     else if (t === "NONPROFIT") where.push(`(upper(entity_type) like '%NOT-FOR-PROFIT%' OR upper(entity_type) like '%NONPROFIT%')`);

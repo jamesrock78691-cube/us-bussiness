@@ -50,7 +50,7 @@ interface SearchResponse {
 
 const LIVE_STATES = new Set(["CO", "NY", "CT", "OR", "PA"]);
 const EXPORT_PAGE_SIZE = 100;
-const EXPORT_MAX_ROWS = 1000;
+const EXPORT_HARD_MAX = 5000; // safety cap for free APIs / browser
 
 function cleanName(name: string) {
   return name
@@ -108,6 +108,7 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState("");
+  const [exportCount, setExportCount] = useState(100); // user-chosen count
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [error, setError] = useState("");
   const [tmLocal, setTmLocal] = useState<Record<string, string>>({});
@@ -160,18 +161,21 @@ export default function SearchPage() {
 
   async function handleExportCSV() {
     if (!result || result.data.length === 0) return;
+
+    let wanted = Math.floor(Number(exportCount) || 100);
+    if (wanted < 1) wanted = 1;
+    if (wanted > EXPORT_HARD_MAX) wanted = EXPORT_HARD_MAX;
+    // Don't request more than total available
+    wanted = Math.min(wanted, result.total || wanted);
+
     setExporting(true);
-    setExportProgress("Fetching rows...");
+    setExportProgress(`Fetching ${wanted} rows...`);
     try {
       const all: Business[] = [];
-      const maxPages = Math.ceil(EXPORT_MAX_ROWS / EXPORT_PAGE_SIZE);
-      const totalPagesNeeded = Math.min(
-        Math.ceil(result.total / EXPORT_PAGE_SIZE) || 1,
-        maxPages
-      );
+      const totalPagesNeeded = Math.ceil(wanted / EXPORT_PAGE_SIZE);
 
       for (let p = 1; p <= totalPagesNeeded; p++) {
-        setExportProgress(`Fetching page ${p} of ${totalPagesNeeded}...");
+        setExportProgress(`Fetching page ${p} of ${totalPagesNeeded} (${all.length}/${wanted})...`);
         const params = new URLSearchParams();
         if (appliedFilters.q) params.set("q", appliedFilters.q);
         if (appliedFilters.state) params.set("state", appliedFilters.state);
@@ -188,14 +192,11 @@ export default function SearchPage() {
         const data: SearchResponse = await res.json();
         if (!data.data?.length) break;
         all.push(...data.data);
-        if (all.length >= EXPORT_MAX_ROWS) break;
+        if (all.length >= wanted) break;
         if (data.data.length < EXPORT_PAGE_SIZE) break;
       }
 
-      const unique = Array.from(new Map(all.map((b) => [b.id, b])).values()).slice(
-        0,
-        EXPORT_MAX_ROWS
-      );
+      const unique = Array.from(new Map(all.map((b) => [b.id, b])).values()).slice(0, wanted);
       const withTm = unique.map((b) => ({
         ...b,
         trademarkStatus: tmLocal[b.id] || b.trademarkStatus,
@@ -206,12 +207,12 @@ export default function SearchPage() {
         withTm,
         `us-businesses-${appliedFilters.state || "all"}-${withTm.length}-rows.csv`
       );
-      setExportProgress(`Exported ${withTm.length} of ${result.total.toLocaleString()} total`);
+      setExportProgress(`Done — exported ${withTm.length} of ${result.total.toLocaleString()} total`);
     } catch {
-      setError("Export failed. Try again or narrow filters.");
+      setError("Export failed. Try a smaller number or narrow filters.");
     } finally {
       setExporting(false);
-      setTimeout(() => setExportProgress(""), 4000);
+      setTimeout(() => setExportProgress(""), 5000);
     }
   }
 
@@ -235,26 +236,59 @@ export default function SearchPage() {
     return "bg-amber-50 text-amber-700";
   };
 
+  const quickCounts = [50, 100, 250, 500, 1000, 2000];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Search Businesses</h1>
           <p className="text-slate-500 mt-1">
-            Live: <strong>CO, NY, CT, OR, PA</strong> · Export up to 1,000 filtered rows
+            Live: <strong>CO, NY, CT, OR, PA</strong> · Apni marzi se export count likho
           </p>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <button
-            onClick={handleExportCSV}
-            disabled={!result || result.data.length === 0 || exporting}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-sm font-medium transition disabled:cursor-not-allowed"
-          >
-            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            {exporting ? "Exporting..." : "Export CSV (up to 1000)"}
-          </button>
+
+        <div className="flex flex-col items-stretch sm:items-end gap-2">
+          <div className="flex flex-wrap items-center gap-2 justify-end">
+            <label className="text-xs font-medium text-slate-600 whitespace-nowrap">
+              Export rows:
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={EXPORT_HARD_MAX}
+              value={exportCount}
+              onChange={(e) => setExportCount(Number(e.target.value) || 1)}
+              className="w-24 px-2 py-1.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              title={`1 to ${EXPORT_HARD_MAX}`}
+            />
+            <button
+              onClick={handleExportCSV}
+              disabled={!result || result.data.length === 0 || exporting}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-sm font-medium transition disabled:cursor-not-allowed"
+            >
+              {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {exporting ? "Exporting..." : "Export CSV"}
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1 justify-end">
+            {quickCounts.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setExportCount(n)}
+                className={`px-2 py-0.5 rounded text-[11px] border transition ${
+                  exportCount === n
+                    ? "bg-emerald-50 border-emerald-300 text-emerald-800"
+                    : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
           {exportProgress && (
-            <span className="text-xs text-slate-500">{exportProgress}</span>
+            <span className="text-xs text-slate-500 text-right">{exportProgress}</span>
           )}
         </div>
       </div>
@@ -330,7 +364,11 @@ export default function SearchPage() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
           <span className="text-sm font-medium text-slate-700">Results</span>
-          <span className="text-xs text-slate-400">{result ? `${result.total.toLocaleString()} records (export max 1,000)` : "—"}</span>
+          <span className="text-xs text-slate-400">
+            {result
+              ? `${result.total.toLocaleString()} total · export = jo number likho (max ${EXPORT_HARD_MAX.toLocaleString()})`
+              : "—"}
+          </span>
         </div>
 
         {loading && !result ? (
@@ -424,8 +462,8 @@ export default function SearchPage() {
       </div>
 
       <div className="text-xs text-slate-400 space-y-1">
-        <p><strong>Export:</strong> CSV ab tak <strong>1,000 rows</strong> tak nikalta hai (filters apply). 67 lakh full dump free live API se practical nahi — filters lagao (city / entity type / name) taake relevant batch mile.</p>
-        <p><strong>Live states:</strong> CO, NY, CT, OR, PA · CT has emails.</p>
+        <p><strong>Export rows:</strong> Number box mein kitni chahiye likho (1–{EXPORT_HARD_MAX.toLocaleString()}), ya quick buttons 50 / 100 / 250 / 500 / 1000 / 2000. Phir Export CSV.</p>
+        <p>Bahut bada number (e.g. 5000) slow ho sakta hai — filters lagao (city / LLC) taake relevant data mile.</p>
       </div>
     </div>
   );

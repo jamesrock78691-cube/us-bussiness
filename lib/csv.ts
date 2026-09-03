@@ -22,6 +22,7 @@ export function toCSV(rows: Record<string, unknown>[], columns?: string[]): stri
   return `${header}\n${body}`;
 }
 
+/** Matches Google Sheet template columns + Maps URL */
 export const EXPORT_COLUMNS = [
   "companyName",
   "state",
@@ -36,6 +37,34 @@ export const EXPORT_COLUMNS = [
   "website",
   "businessEmail",
   "businessPhone",
+  "trademarkStatus",
+  "trademarkMatch",
   "source",
+  "sourceUrl",
+  "lastChecked",
   "recordId",
+  "mapsUrl",
+];
+
+export const SHEET_HEADER_LABELS = [
+  "Company Name",
+  "State",
+  "Entity Type",
+  "Entity Number",
+  "Status",
+  "Formation Date",
+  "Principal Address",
+  "City",
+  "ZIP",
+  "Registered Agent",
+  "Website",
+  "Business Email",
+  "Business Phone",
+  "Trademark Status",
+  "Trademark Match",
+  "Source",
+  "Source URL",
+  "Last Checked",
+  "Record ID",
+  "Google Maps",
 ];

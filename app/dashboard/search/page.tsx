@@ -13,6 +13,7 @@ import {
   Mail,
   Phone,
   BadgeCheck,
+  Sheet,
 } from "lucide-react";
 import { US_STATES, ENTITY_TYPES, BUSINESS_STATUSES } from "@/lib/utils";
 import { toCSV, EXPORT_COLUMNS } from "@/lib/csv";
@@ -35,7 +36,10 @@ interface Business {
   trademarkStatus: string | null;
   trademarkMatch: string | null;
   source: string | null;
+  sourceUrl?: string | null;
+  lastChecked?: string | null;
   recordId?: string | null;
+  mapsUrl?: string | null;
 }
 
 interface SearchResponse {
@@ -50,7 +54,9 @@ interface SearchResponse {
 
 const LIVE_STATES = new Set(["CO", "NY", "CT", "OR", "PA"]);
 const EXPORT_PAGE_SIZE = 100;
-const EXPORT_HARD_MAX = 5000; // safety cap for free APIs / browser
+const EXPORT_HARD_MAX = 5000;
+const SHEET_URL =
+  "https://docs.google.com/spreadsheets/d/1D0pRC_NEuG9HJK8hVVxedlIUWNU3UjLhohahYS9akGM/edit";
 
 function cleanName(name: string) {
   return name
@@ -74,16 +80,17 @@ function emailSearchUrl(b: Business) {
 }
 
 function mapsUrl(b: Business) {
+  if (b.mapsUrl) return b.mapsUrl;
   const q = `${b.companyName} ${b.principalAddress || ""} ${b.city || ""} ${b.state} ${b.zip || ""}`;
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
 }
 
+function withMaps(rows: Business[]): Business[] {
+  return rows.map((b) => ({ ...b, mapsUrl: mapsUrl(b) }));
+}
+
 function downloadCSV(rows: Business[], filename: string) {
-  const csv = toCSV(rows as unknown as Record<string, unknown>[], [
-    ...EXPORT_COLUMNS,
-    "trademarkStatus",
-    "trademarkMatch",
-  ]);
+  const csv = toCSV(rows as unknown as Record<string, unknown>[], EXPORT_COLUMNS);
   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -102,16 +109,27 @@ export default function SearchPage() {
     city: "",
     zip: "",
     hasEmail: false,
+    dateFrom: "",
+    dateTo: "",
   });
   const [appliedFilters, setAppliedFilters] = useState(filters);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [exportProgress, setExportProgress] = useState("");
-  const [exportCount, setExportCount] = useState(100); // user-chosen count
+  const [exportCount, setExportCount] = useState(100);
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [error, setError] = useState("");
   const [tmLocal, setTmLocal] = useState<Record<string, string>>({});
+  const [sheetsStatus, setSheetsStatus] = useState<{ configured: boolean } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/sheets/sync")
+      .then((r) => r.json())
+      .then((d) => setSheetsStatus({ configured: Boolean(d.configured) }))
+      .catch(() => setSheetsStatus({ configured: false }));
+  }, []);
 
   const doSearch = useCallback(async (f: typeof filters, p: number) => {
     setLoading(true);
@@ -125,6 +143,8 @@ export default function SearchPage() {
       if (f.city) params.set("city", f.city);
       if (f.zip) params.set("zip", f.zip);
       if (f.hasEmail) params.set("hasEmail", "1");
+      if (f.dateFrom) params.set("dateFrom", f.dateFrom);
+      if (f.dateTo) params.set("dateTo", f.dateTo);
       params.set("page", String(p));
       params.set("limit", "20");
 
@@ -149,7 +169,17 @@ export default function SearchPage() {
   }
 
   function handleClear() {
-    const empty = { q: "", state: "", entityType: "", status: "", city: "", zip: "", hasEmail: false };
+    const empty = {
+      q: "",
+      state: "",
+      entityType: "",
+      status: "",
+      city: "",
+      zip: "",
+      hasEmail: false,
+      dateFrom: "",
+      dateTo: "",
+    };
     setFilters(empty);
     setPage(1);
     setAppliedFilters(empty);
@@ -159,60 +189,102 @@ export default function SearchPage() {
     if (e.key === "Enter") handleSearch();
   }
 
+  async function fetchBatch(wanted: number): Promise<Business[]> {
+    const all: Business[] = [];
+    const totalPagesNeeded = Math.ceil(wanted / EXPORT_PAGE_SIZE);
+    for (let p = 1; p <= totalPagesNeeded; p++) {
+      setExportProgress(`Fetching page ${p} of ${totalPagesNeeded} (${all.length}/${wanted})...`);
+      const params = new URLSearchParams();
+      if (appliedFilters.q) params.set("q", appliedFilters.q);
+      if (appliedFilters.state) params.set("state", appliedFilters.state);
+      if (appliedFilters.entityType) params.set("entityType", appliedFilters.entityType);
+      if (appliedFilters.status) params.set("status", appliedFilters.status);
+      if (appliedFilters.city) params.set("city", appliedFilters.city);
+      if (appliedFilters.zip) params.set("zip", appliedFilters.zip);
+      if (appliedFilters.hasEmail) params.set("hasEmail", "1");
+      if (appliedFilters.dateFrom) params.set("dateFrom", appliedFilters.dateFrom);
+      if (appliedFilters.dateTo) params.set("dateTo", appliedFilters.dateTo);
+      params.set("page", String(p));
+      params.set("limit", String(EXPORT_PAGE_SIZE));
+      const res = await fetch(`/api/businesses/search?${params}`);
+      if (!res.ok) break;
+      const data: SearchResponse = await res.json();
+      if (!data.data?.length) break;
+      all.push(...data.data);
+      if (all.length >= wanted) break;
+      if (data.data.length < EXPORT_PAGE_SIZE) break;
+    }
+    return Array.from(new Map(all.map((b) => [b.id, b])).values()).slice(0, wanted);
+  }
+
   async function handleExportCSV() {
     if (!result || result.data.length === 0) return;
+    let wanted = Math.floor(Number(exportCount) || 100);
+    if (wanted < 1) wanted = 1;
+    if (wanted > EXPORT_HARD_MAX) wanted = EXPORT_HARD_MAX;
+    wanted = Math.min(wanted, result.total || wanted);
+
+    setExporting(true);
+    try {
+      const unique = withMaps(await fetchBatch(wanted)).map((b) => ({
+        ...b,
+        trademarkStatus: tmLocal[b.id] || b.trademarkStatus,
+      }));
+      setExportProgress(`Downloading ${unique.length} rows...`);
+      downloadCSV(unique, `us-businesses-${appliedFilters.state || "all"}-${unique.length}-rows.csv`);
+      setExportProgress(`Done — ${unique.length} rows (CSV includes Google Maps column)`);
+    } catch {
+      setError("Export failed.");
+    } finally {
+      setExporting(false);
+      setTimeout(() => setExportProgress(""), 5000);
+    }
+  }
+
+  async function handleSyncSheet() {
+    if (!result || result.data.length === 0) return;
+    if (!appliedFilters.state || !LIVE_STATES.has(appliedFilters.state)) {
+      setError("Google Sheet sync ke liye ek LIVE state select karo (CO / NY / CT / OR / PA).");
+      return;
+    }
 
     let wanted = Math.floor(Number(exportCount) || 100);
     if (wanted < 1) wanted = 1;
     if (wanted > EXPORT_HARD_MAX) wanted = EXPORT_HARD_MAX;
-    // Don't request more than total available
     wanted = Math.min(wanted, result.total || wanted);
 
-    setExporting(true);
-    setExportProgress(`Fetching ${wanted} rows...`);
+    setSyncing(true);
+    setExportProgress(`Sending ${wanted} rows to Google Sheet...`);
     try {
-      const all: Business[] = [];
-      const totalPagesNeeded = Math.ceil(wanted / EXPORT_PAGE_SIZE);
-
-      for (let p = 1; p <= totalPagesNeeded; p++) {
-        setExportProgress(`Fetching page ${p} of ${totalPagesNeeded} (${all.length}/${wanted})...`);
-        const params = new URLSearchParams();
-        if (appliedFilters.q) params.set("q", appliedFilters.q);
-        if (appliedFilters.state) params.set("state", appliedFilters.state);
-        if (appliedFilters.entityType) params.set("entityType", appliedFilters.entityType);
-        if (appliedFilters.status) params.set("status", appliedFilters.status);
-        if (appliedFilters.city) params.set("city", appliedFilters.city);
-        if (appliedFilters.zip) params.set("zip", appliedFilters.zip);
-        if (appliedFilters.hasEmail) params.set("hasEmail", "1");
-        params.set("page", String(p));
-        params.set("limit", String(EXPORT_PAGE_SIZE));
-
-        const res = await fetch(`/api/businesses/search?${params}`);
-        if (!res.ok) break;
-        const data: SearchResponse = await res.json();
-        if (!data.data?.length) break;
-        all.push(...data.data);
-        if (all.length >= wanted) break;
-        if (data.data.length < EXPORT_PAGE_SIZE) break;
+      const res = await fetch("/api/sheets/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          count: wanted,
+          state: appliedFilters.state,
+          q: appliedFilters.q,
+          entityType: appliedFilters.entityType,
+          status: appliedFilters.status,
+          city: appliedFilters.city,
+          zip: appliedFilters.zip,
+          hasEmail: appliedFilters.hasEmail,
+          dateFrom: appliedFilters.dateFrom,
+          dateTo: appliedFilters.dateTo,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Sheet sync failed");
+        setExportProgress("");
+        return;
       }
-
-      const unique = Array.from(new Map(all.map((b) => [b.id, b])).values()).slice(0, wanted);
-      const withTm = unique.map((b) => ({
-        ...b,
-        trademarkStatus: tmLocal[b.id] || b.trademarkStatus,
-      }));
-
-      setExportProgress(`Downloading ${withTm.length} rows...`);
-      downloadCSV(
-        withTm,
-        `us-businesses-${appliedFilters.state || "all"}-${withTm.length}-rows.csv`
-      );
-      setExportProgress(`Done — exported ${withTm.length} of ${result.total.toLocaleString()} total`);
+      setExportProgress(data.message || `Synced ${data.appended} rows`);
+      window.open(data.sheetUrl || SHEET_URL, "_blank");
     } catch {
-      setError("Export failed. Try a smaller number or narrow filters.");
+      setError("Sheet sync request failed");
     } finally {
-      setExporting(false);
-      setTimeout(() => setExportProgress(""), 5000);
+      setSyncing(false);
+      setTimeout(() => setExportProgress(""), 8000);
     }
   }
 
@@ -240,19 +312,17 @@ export default function SearchPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Search Businesses</h1>
           <p className="text-slate-500 mt-1">
-            Live: <strong>CO, NY, CT, OR, PA</strong> · Apni marzi se export count likho
+            Live: <strong>CO, NY, CT, OR, PA</strong> · Date filter · Maps · Google Sheet
           </p>
         </div>
 
         <div className="flex flex-col items-stretch sm:items-end gap-2">
           <div className="flex flex-wrap items-center gap-2 justify-end">
-            <label className="text-xs font-medium text-slate-600 whitespace-nowrap">
-              Export rows:
-            </label>
+            <label className="text-xs font-medium text-slate-600 whitespace-nowrap">Rows:</label>
             <input
               type="number"
               min={1}
@@ -260,16 +330,32 @@ export default function SearchPage() {
               value={exportCount}
               onChange={(e) => setExportCount(Number(e.target.value) || 1)}
               className="w-24 px-2 py-1.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              title={`1 to ${EXPORT_HARD_MAX}`}
             />
             <button
               onClick={handleExportCSV}
-              disabled={!result || result.data.length === 0 || exporting}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-sm font-medium transition disabled:cursor-not-allowed"
+              disabled={!result || result.data.length === 0 || exporting || syncing}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-sm font-medium transition"
             >
               {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              {exporting ? "Exporting..." : "Export CSV"}
+              CSV
             </button>
+            <button
+              onClick={handleSyncSheet}
+              disabled={!result || result.data.length === 0 || exporting || syncing}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white text-sm font-medium transition"
+              title="Append filtered rows to your Google Sheet"
+            >
+              {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sheet className="w-4 h-4" />}
+              Google Sheet
+            </button>
+            <a
+              href={SHEET_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-2 py-2 text-xs text-blue-600 hover:underline"
+            >
+              Open sheet <ExternalLink className="w-3 h-3" />
+            </a>
           </div>
           <div className="flex flex-wrap gap-1 justify-end">
             {quickCounts.map((n) => (
@@ -287,8 +373,11 @@ export default function SearchPage() {
               </button>
             ))}
           </div>
-          {exportProgress && (
-            <span className="text-xs text-slate-500 text-right">{exportProgress}</span>
+          {exportProgress && <span className="text-xs text-slate-500 text-right">{exportProgress}</span>}
+          {sheetsStatus && !sheetsStatus.configured && (
+            <span className="text-[11px] text-amber-700 text-right max-w-sm">
+              Sheet push ke liye Vercel pe GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_PRIVATE_KEY lagao (neeche setup).
+            </span>
           )}
         </div>
       </div>
@@ -342,6 +431,14 @@ export default function SearchPage() {
             <label className="block text-xs font-medium text-slate-500 mb-1">ZIP</label>
             <input type="text" value={filters.zip} onChange={(e) => setFilters({ ...filters, zip: e.target.value })} onKeyDown={handleKeyDown} placeholder="ZIP code" className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
           </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Formation date from</label>
+            <input type="date" value={filters.dateFrom} onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })} className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Formation date to</label>
+            <input type="date" value={filters.dateTo} onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })} className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+          </div>
         </div>
 
         <label className="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
@@ -365,9 +462,7 @@ export default function SearchPage() {
         <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
           <span className="text-sm font-medium text-slate-700">Results</span>
           <span className="text-xs text-slate-400">
-            {result
-              ? `${result.total.toLocaleString()} total · export = jo number likho (max ${EXPORT_HARD_MAX.toLocaleString()})`
-              : "—"}
+            {result ? `${result.total.toLocaleString()} total` : "—"}
           </span>
         </div>
 
@@ -390,9 +485,10 @@ export default function SearchPage() {
                     <th className="px-4 py-3">Company</th>
                     <th className="px-4 py-3">State</th>
                     <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Formed</th>
                     <th className="px-4 py-3">City</th>
                     <th className="px-4 py-3">Email</th>
-                    <th className="px-4 py-3">Phone</th>
+                    <th className="px-4 py-3">Phone / Maps</th>
                     <th className="px-4 py-3">Trademark</th>
                   </tr>
                 </thead>
@@ -411,6 +507,7 @@ export default function SearchPage() {
                         <td className="px-4 py-3">
                           <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${statusColor(b.status)}`}>{b.status || "Unknown"}</span>
                         </td>
+                        <td className="px-4 py-3 text-slate-600 text-xs">{b.formationDate || "—"}</td>
                         <td className="px-4 py-3 text-slate-600">{b.city || "—"}{b.zip ? ` ${b.zip}` : ""}</td>
                         <td className="px-4 py-3">
                           {b.businessEmail ? (
@@ -420,14 +517,14 @@ export default function SearchPage() {
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          {b.businessPhone ? (
-                            <a href={`tel:${b.businessPhone}`} className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1"><Phone className="w-3 h-3" /> {b.businessPhone}</a>
-                          ) : (
-                            <div className="flex flex-col gap-1">
+                          <div className="flex flex-col gap-1">
+                            {b.businessPhone ? (
+                              <a href={`tel:${b.businessPhone}`} className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1"><Phone className="w-3 h-3" /> {b.businessPhone}</a>
+                            ) : (
                               <a href={phoneSearchUrl(b)} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1"><Phone className="w-3 h-3" /> Find phone</a>
-                              <a href={mapsUrl(b)} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-500 hover:underline inline-flex items-center gap-1"><ExternalLink className="w-3 h-3" /> Maps</a>
-                            </div>
-                          )}
+                            )}
+                            <a href={mapsUrl(b)} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-500 hover:underline inline-flex items-center gap-1"><ExternalLink className="w-3 h-3" /> Maps</a>
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex flex-col gap-1.5">
@@ -461,9 +558,17 @@ export default function SearchPage() {
         ) : null}
       </div>
 
-      <div className="text-xs text-slate-400 space-y-1">
-        <p><strong>Export rows:</strong> Number box mein kitni chahiye likho (1–{EXPORT_HARD_MAX.toLocaleString()}), ya quick buttons 50 / 100 / 250 / 500 / 1000 / 2000. Phir Export CSV.</p>
-        <p>Bahut bada number (e.g. 5000) slow ho sakta hai — filters lagao (city / LLC) taake relevant data mile.</p>
+      <div className="text-xs text-slate-500 space-y-2 bg-slate-50 border border-slate-200 rounded-lg p-4">
+        <p><strong>Google Sheet:</strong>{' '}
+          <a className="text-blue-600 hover:underline" href={SHEET_URL} target="_blank" rel="noopener noreferrer">Open your sheet</a>
+          {' '}· CSV + Sheet dono mein <strong>Google Maps</strong> column aata hai.
+        </p>
+        <p><strong>Date filter:</strong> Formation date from / to — CO, NY, PA pe best kaam karta hai.</p>
+        <p><strong>Lacs / crores:</strong> Google Sheet ~10 lakh cells practical limit. Pure 67 lakh rows ek sheet mein nahi aate. Filters + Rows number se batch push karo (max 5,000 per click).</p>
+        <p><strong>Sheet auto-push setup (ek baar):</strong> Google Cloud → Service Account → JSON key → sheet ko us email se <em>Editor</em> share karo → Vercel env:
+          <code className="block mt-1 text-[10px] bg-white border rounded p-2 overflow-x-auto">GOOGLE_SHEET_ID=1D0pRC_NEuG9HJK8hVVxedlIUWNU3UjLhohahYS9akGM{"\n"}GOOGLE_SERVICE_ACCOUNT_EMAIL=...@....iam.gserviceaccount.com{"\n"}GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"</code>
+        </p>
+        <p>Credentials ke bina bhi CSV export mein Maps link already included hai — CSV Google Sheet mein Import kar sakte ho.</p>
       </div>
     </div>
   );

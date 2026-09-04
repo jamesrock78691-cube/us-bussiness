@@ -10,9 +10,6 @@ import {
   ChevronRight,
   Building2,
   ExternalLink,
-  Mail,
-  Phone,
-  BadgeCheck,
   FileSpreadsheet,
 } from "lucide-react";
 import { US_STATES, ENTITY_TYPES, BUSINESS_STATUSES } from "@/lib/utils";
@@ -113,6 +110,7 @@ export default function SearchPage() {
     city: "",
     zip: "",
     hasEmail: false,
+    hasGmail: false,
     dateFrom: "",
     dateTo: "",
   });
@@ -126,14 +124,6 @@ export default function SearchPage() {
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [error, setError] = useState("");
   const [tmLocal, setTmLocal] = useState<Record<string, string>>({});
-  const [sheetsStatus, setSheetsStatus] = useState<{ configured: boolean } | null>(null);
-
-  useEffect(() => {
-    fetch("/api/sheets/sync")
-      .then((r) => r.json())
-      .then((d) => setSheetsStatus({ configured: Boolean(d.configured) }))
-      .catch(() => setSheetsStatus({ configured: false }));
-  }, []);
 
   const doSearch = useCallback(async (f: typeof filters, p: number) => {
     setLoading(true);
@@ -147,6 +137,7 @@ export default function SearchPage() {
       if (f.city) params.set("city", f.city);
       if (f.zip) params.set("zip", f.zip);
       if (f.hasEmail) params.set("hasEmail", "1");
+      if (f.hasGmail) params.set("hasGmail", "1");
       if (f.dateFrom) params.set("dateFrom", f.dateFrom);
       if (f.dateTo) params.set("dateTo", f.dateTo);
       params.set("page", String(p));
@@ -181,6 +172,7 @@ export default function SearchPage() {
       city: "",
       zip: "",
       hasEmail: false,
+      hasGmail: false,
       dateFrom: "",
       dateTo: "",
     };
@@ -206,6 +198,7 @@ export default function SearchPage() {
       if (appliedFilters.city) params.set("city", appliedFilters.city);
       if (appliedFilters.zip) params.set("zip", appliedFilters.zip);
       if (appliedFilters.hasEmail) params.set("hasEmail", "1");
+      if (appliedFilters.hasGmail) params.set("hasGmail", "1");
       if (appliedFilters.dateFrom) params.set("dateFrom", appliedFilters.dateFrom);
       if (appliedFilters.dateTo) params.set("dateTo", appliedFilters.dateTo);
       params.set("page", String(p));
@@ -247,7 +240,12 @@ export default function SearchPage() {
 
   async function handleSyncSheet() {
     if (!result || result.data.length === 0) return;
-    if (!appliedFilters.state || !LIVE_STATES.has(appliedFilters.state)) {
+    // Email filters force CT
+    const stateForSync =
+      appliedFilters.hasEmail || appliedFilters.hasGmail
+        ? "CT"
+        : appliedFilters.state;
+    if (!stateForSync || !LIVE_STATES.has(stateForSync)) {
       setError("Google Sheet sync: select a LIVE state (CO / NY / CT / OR / PA).");
       return;
     }
@@ -264,13 +262,14 @@ export default function SearchPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           count: wanted,
-          state: appliedFilters.state,
+          state: stateForSync,
           q: appliedFilters.q,
           entityType: appliedFilters.entityType,
           status: appliedFilters.status,
           city: appliedFilters.city,
           zip: appliedFilters.zip,
           hasEmail: appliedFilters.hasEmail,
+          hasGmail: appliedFilters.hasGmail,
           dateFrom: appliedFilters.dateFrom,
           dateTo: appliedFilters.dateTo,
         }),
@@ -316,7 +315,7 @@ export default function SearchPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Search Businesses</h1>
           <p className="text-slate-500 mt-1">
-            All <strong>19 fields</strong> + Google Maps · Live: CO, NY, CT, OR, PA
+            Live: CO, NY, CT, OR, PA · Email/Gmail = Connecticut public registry
           </p>
         </div>
 
@@ -426,10 +425,44 @@ export default function SearchPage() {
             <input type="date" value={filters.dateTo} onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })} className="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
           </div>
         </div>
-        <label className="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-          <input type="checkbox" checked={filters.hasEmail} onChange={(e) => setFilters({ ...filters, hasEmail: e.target.checked })} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
-          Only with business email (best on CT)
-        </label>
+
+        <div className="flex flex-col sm:flex-row gap-3 pt-1">
+          <label className="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={filters.hasEmail}
+              onChange={(e) =>
+                setFilters({
+                  ...filters,
+                  hasEmail: e.target.checked,
+                  hasGmail: e.target.checked ? filters.hasGmail : false,
+                })
+              }
+              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            Only with business email (live CT · ~800k)
+          </label>
+          <label className="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={filters.hasGmail}
+              onChange={(e) =>
+                setFilters({
+                  ...filters,
+                  hasGmail: e.target.checked,
+                  hasEmail: e.target.checked ? true : filters.hasEmail,
+                })
+              }
+              className="rounded border-slate-300 text-red-500 focus:ring-red-500"
+            />
+            Only with <strong>Gmail</strong> (@gmail.com · ~280k CT)
+          </label>
+        </div>
+        <p className="text-[11px] text-slate-500">
+          Email/Gmail filters use official Connecticut SOS public emails (only free state source with emails).
+          Checking these auto-searches CT live data — results show real emails in the Email column.
+        </p>
+
         <div className="flex gap-2 pt-1">
           <button type="button" onClick={handleSearch} disabled={loading} className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-medium transition">
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
@@ -480,12 +513,11 @@ export default function SearchPage() {
                     <th className="px-3 py-2 sticky left-0 bg-slate-50">Company Name</th>
                     <th className="px-3 py-2">State</th>
                     <th className="px-3 py-2">Entity Type</th>
-                    <th className="px-3 py-2">Entity Number</th>
                     <th className="px-3 py-2">Status</th>
                     <th className="px-3 py-2">Formation Date</th>
                     <th className="px-3 py-2">City</th>
                     <th className="px-3 py-2">ZIP</th>
-                    <th className="px-3 py-2">Email</th>
+                    <th className="px-3 py-2">Business Email</th>
                     <th className="px-3 py-2">Phone</th>
                     <th className="px-3 py-2">Maps</th>
                     <th className="px-3 py-2">Trademark</th>
@@ -501,14 +533,13 @@ export default function SearchPage() {
                         </td>
                         <td className="px-3 py-2"><span className="px-1.5 py-0.5 rounded text-xs bg-slate-100">{b.state}</span></td>
                         <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{cell(b.entityType)}</td>
-                        <td className="px-3 py-2 text-xs text-slate-600">{cell(b.entityNumber)}</td>
                         <td className="px-3 py-2"><span className={`px-1.5 py-0.5 rounded text-xs ${statusColor(b.status)}`}>{cell(b.status)}</span></td>
                         <td className="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">{cell(b.formationDate)}</td>
                         <td className="px-3 py-2 text-slate-600">{cell(b.city)}</td>
                         <td className="px-3 py-2 text-slate-600">{cell(b.zip)}</td>
                         <td className="px-3 py-2 text-xs">
                           {b.businessEmail ? (
-                            <a href={`mailto:${b.businessEmail}`} className="text-emerald-700 hover:underline">{b.businessEmail}</a>
+                            <a href={`mailto:${b.businessEmail}`} className="text-emerald-700 font-medium hover:underline">{b.businessEmail}</a>
                           ) : (
                             <a href={emailSearchUrl(b)} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Find</a>
                           )}
@@ -543,20 +574,10 @@ export default function SearchPage() {
                   {" "}· {result.total.toLocaleString()} records
                 </p>
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={page <= 1 || loading}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    className="inline-flex items-center gap-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 shadow-sm"
-                  >
+                  <button type="button" disabled={page <= 1 || loading} onClick={() => setPage((p) => Math.max(1, p - 1))} className="inline-flex items-center gap-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 shadow-sm">
                     <ChevronLeft className="w-4 h-4" /> Previous
                   </button>
-                  <button
-                    type="button"
-                    disabled={page >= totalPages || loading}
-                    onClick={() => setPage((p) => p + 1)}
-                    className="inline-flex items-center gap-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 shadow-sm"
-                  >
+                  <button type="button" disabled={page >= totalPages || loading} onClick={() => setPage((p) => p + 1)} className="inline-flex items-center gap-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 shadow-sm">
                     Next <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>

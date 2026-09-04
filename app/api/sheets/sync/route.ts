@@ -36,16 +36,19 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const state = String(body.state || "").toUpperCase();
+    let state = String(body.state || "").toUpperCase();
     const q = body.q || "";
     const entityType = body.entityType || "";
     const status = body.status || "";
     const city = body.city || "";
     const zip = body.zip || "";
     const hasEmail = Boolean(body.hasEmail);
+    const hasGmail = Boolean(body.hasGmail);
     const dateFrom = body.dateFrom || "";
     const dateTo = body.dateTo || "";
     const count = Math.min(5000, Math.max(1, parseInt(String(body.count || 100), 10)));
+
+    if (hasEmail || hasGmail) state = "CT";
 
     if (!["CO", "NY", "CT", "OR", "PA"].includes(state)) {
       return NextResponse.json(
@@ -93,7 +96,8 @@ export async function POST(req: NextRequest) {
           status: status || undefined,
           city: city || undefined,
           zip: zip || undefined,
-          hasEmail: hasEmail || undefined,
+          hasEmail: hasEmail && !hasGmail ? true : undefined,
+          hasGmail: hasGmail || undefined,
           limit,
           offset,
         });
